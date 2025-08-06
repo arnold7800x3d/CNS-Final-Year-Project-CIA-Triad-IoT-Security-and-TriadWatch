@@ -13,6 +13,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "AESLib.h"
 
 // variables
 #define DHTPIN 0  // pin for the DHT module
