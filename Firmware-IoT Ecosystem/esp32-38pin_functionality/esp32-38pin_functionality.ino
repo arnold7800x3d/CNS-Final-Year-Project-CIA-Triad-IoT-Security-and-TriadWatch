@@ -8,12 +8,13 @@
     - buzzer        - alarm indicator
 */
 
-// libraries
+// import necessary libraries
 #include "DHT.h"  // DHT11 library
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "AESLib.h"
+#include "AESLib.h" // AES encryption library
+#include "arduino_base64.hpp" // base64 encoding library
 
 // variables
 #define DHTPIN 0  // pin for the DHT module
@@ -30,6 +31,30 @@ const int ledPin = 2;  // pin for the LED
 // objects
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+AESLib aesLib;
+
+// AES key and IV
+byte aesKey[] = {};
+byte aesIV[] = {};
+
+// encryption function
+String encryptSensorData(String inputData) {
+  int inputDataLength = inputData.length() + 1; // length of bytes of sensor data, +1 handles null character
+  byte plaintext[inputDataLength]; // empty byte array as memory storage
+  inputData.getBytes(plaintext, inputDataLength); // convert sensor data into bytes
+
+  int ciphertextLength = aesLib.get_cipher_length(inputDataLength); // length of bytes of encrypted sensor data
+  byte encryptedData[ciphertextLength]; // empty byte array as memory storage
+
+  // AES engine
+  aesLib.set_paddingmode((paddingMode)0); // padding mode to paddingMode.CMS which is the default
+  aesLib.encrypt(plaintext, inputDataLength, encryptedData, aesKey, 16, aesIV);
+  
+  char base64EncodedOutput[base64::encodeLength(ciphertextLenght)]; // empty char array
+  base64::encode(encryptedData, ciphertextLength, base64EncodedOutput); // convert encrypted bytes into base64 string
+
+  return String(base64EncodedOutput); // convert the encoded base64 char array into a string
+}
 
 void setup() {
   Serial.begin(9600);
@@ -68,12 +93,20 @@ void loop() {
     Serial.println("Failed to read from DHT sensor!"); // display if dht module reads an invalid value
     display.print("DHT11 module error");
   } else {
-    Serial.print("Humidity: "); Serial.print(humidity); Serial.println("%"); // display humidity values on the serial monitor
-    display.print("Humidity: "); display.print(humidity); display.println("%"); // display humidity values on the oled display
-    Serial.print("Temperature: "); Serial.print(temperature); Serial.println("°C"); // display temperature values on the serial monitor
-    display.print("Temperature: "); display.print(temperature); display.println("°C"); // display temperature values on the oled display
+    String payload = "Temp:" + String(temperature, 1) + "C, Hum:" + String(humidity, 1) + "%"; // plaintext
+    String encryptedPayload = encrypt(payload); // encrypt plaintext
+
+    display.println("Plaintext:");
+    display.println(payload);
+    display.println("Ciphertext");  
+    display.println(encryptedPayload);
+
+    //Serial.print("Humidity: "); Serial.print(humidity); Serial.println("%"); // display humidity values on the serial monitor
+    //display.print("Humidity: "); display.print(humidity); display.println("%"); // display humidity values on the oled display
+    //Serial.print("Temperature: "); Serial.print(temperature); Serial.println("°C"); // display temperature values on the serial monitor
+    //display.print("Temperature: "); display.print(temperature); display.println("°C"); // display temperature values on the oled display
   }
 
   display.display();
-  delay(1000);
+  delay(3000);
 }
