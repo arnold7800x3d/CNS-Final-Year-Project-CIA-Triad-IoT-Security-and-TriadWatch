@@ -34,8 +34,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 AESLib aesLib;
 
 // AES key and IV
-byte aesKey[] = {};
-byte aesIV[] = {};
+byte aesKey[] = { 23, 45, 56, 67, 67, 87, 98, 12, 32, 34, 45, 56, 67, 87, 65, 5 };
+byte aesIV[]  = { 123, 43, 46, 89, 29, 187, 58, 213, 78, 50, 19, 106, 205, 1, 5, 7 };
 
 // encryption function
 String encryptSensorData(String inputData) {
@@ -50,7 +50,7 @@ String encryptSensorData(String inputData) {
   aesLib.set_paddingmode((paddingMode)0); // padding mode to paddingMode.CMS which is the default
   aesLib.encrypt(plaintext, inputDataLength, encryptedData, aesKey, 16, aesIV);
   
-  char base64EncodedOutput[base64::encodeLength(ciphertextLenght)]; // empty char array
+  char base64EncodedOutput[base64::encodeLength(ciphertextLength)]; // empty char array
   base64::encode(encryptedData, ciphertextLength, base64EncodedOutput); // convert encrypted bytes into base64 string
 
   return String(base64EncodedOutput); // convert the encoded base64 char array into a string
@@ -94,12 +94,12 @@ void loop() {
     display.print("DHT11 module error");
   } else {
     String payload = "Temp:" + String(temperature, 1) + "C, Hum:" + String(humidity, 1) + "%"; // plaintext
-    String encryptedPayload = encrypt(payload); // encrypt plaintext
+    String encryptedPayload = encryptSensorData(payload); // encrypt plaintext
 
-    display.println("Plaintext:");
-    display.println(payload);
+    display.println("Plaintext:"); 
+    display.println(payload); // display plaintext on oled dislay
     display.println("Ciphertext");  
-    display.println(encryptedPayload);
+    display.println(encryptedPayload); // display ciphertext on oled display
 
     //Serial.print("Humidity: "); Serial.print(humidity); Serial.println("%"); // display humidity values on the serial monitor
     //display.print("Humidity: "); display.print(humidity); display.println("%"); // display humidity values on the oled display
