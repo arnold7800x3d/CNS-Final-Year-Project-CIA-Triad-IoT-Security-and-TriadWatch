@@ -13,7 +13,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "AESLib.h" // AES encryption library
+#include <mbedtls/aes.h> // AES-256 encryption library
+#include "mbedtls/sha256.h" // SHA-256 encryption
 #include "arduino_base64.hpp" // base64 encoding library
 
 // variables
@@ -31,29 +32,75 @@ const int ledPin = 2;  // pin for the LED
 // objects
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-AESLib aesLib;
 
-// AES key and IV
-byte aesKey[] = { 23, 45, 56, 67, 67, 87, 98, 12, 32, 34, 45, 56, 67, 87, 65, 5 };
-byte aesIV[]  = { 123, 43, 46, 89, 29, 187, 58, 213, 78, 50, 19, 106, 205, 1, 5, 7 };
+// 32-byte AES-256 key (DO NOT randomly generate this each time!)
+byte aesKey[] = {
+  21, 42, 63, 84, 105, 126, 147, 168,
+  189, 210, 231, 252, 17, 34, 51, 68,
+  85, 102, 119, 136, 153, 170, 187, 204,
+  221, 238, 255, 1, 18, 35, 52, 69
+};
 
-// encryption function
 String encryptSensorData(String inputData) {
-  int inputDataLength = inputData.length() + 1; // length of bytes of sensor data, +1 handles null character
-  byte plaintext[inputDataLength]; // empty byte array as memory storage
-  inputData.getBytes(plaintext, inputDataLength); // convert sensor data into bytes
+  // 1. Convert input string to byte array
+  int inputDataLength = inputData.length();
+  byte plaintext[inputDataLength];
+  inputData.getBytes(plaintext, inputDataLength);
 
-  int ciphertextLength = aesLib.get_cipher_length(inputDataLength); // length of bytes of encrypted sensor data
-  byte encryptedData[ciphertextLength]; // empty byte array as memory storage
+  // 2. Apply manual PKCS7 padding
+  int padding = 16 - (inputDataLength % 16);
+  int paddedLength = inputDataLength + padding;
+  byte paddedPlaintext[paddedLength];
+  memcpy(paddedPlaintext, plaintext, inputDataLength);
+  memset(paddedPlaintext + inputDataLength, padding, padding);
 
-  // AES engine
-  aesLib.set_paddingmode((paddingMode)0); // padding mode to paddingMode.CMS which is the default
-  aesLib.encrypt(plaintext, inputDataLength, encryptedData, aesKey, 16, aesIV);
-  
-  char base64EncodedOutput[base64::encodeLength(ciphertextLength)]; // empty char array
-  base64::encode(encryptedData, ciphertextLength, base64EncodedOutput); // convert encrypted bytes into base64 string
+  // 3. Generate random IV
+  byte randomIV[16];
+  for (int i = 0; i < 16; i++) {
+    randomIV[i] = esp_random() % 256;
+  }
 
-  return String(base64EncodedOutput); // convert the encoded base64 char array into a string
+  // 4. Prepare output buffer
+  byte encryptedData[paddedLength];
+
+  // 5. AES encryption
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
+  mbedtls_aes_setkey_enc(&aes, aesKey, 256);
+  mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, paddedLength, randomIV, paddedPlaintext, encryptedData);
+  mbedtls_aes_free(&aes);
+
+  // 6. Concatenate IV + ciphertext
+  int totalLength = 16 + paddedLength;
+  byte finalOutput[totalLength];
+  memcpy(finalOutput, randomIV, 16);
+  memcpy(finalOutput + 16, encryptedData, paddedLength);
+
+  // 7. Base64 encode IV + ciphertext
+  char base64EncodedOutput[base64::encodeLength(totalLength)];
+  base64::encode(finalOutput, totalLength, base64EncodedOutput);
+
+  return String(base64EncodedOutput);
+}
+
+String hashSensorData(String input) {
+  byte SHAResult[32]; // 32 bytes bytes for SHA-256 output
+  mbedtls_sha256_context ctx;
+
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0); // 0 for SHA-256
+  mbedtls_sha256_update(&ctx, (const unsigned char*)input.c_str(), input.length());
+  mbedtls_sha256_finish(&ctx, SHAResult);
+  mbedtls_sha256_free(&ctx);
+
+  // conversion to hexadecimal
+  String hashString = "";
+  for (int i = 0; i < 32; i++) {
+    if (SHAResult[i] < 16) hashString += "0";
+    hashString += String(SHAResult[i], HEX);
+  }
+
+  return hashString;
 }
 
 void setup() {
@@ -95,11 +142,18 @@ void loop() {
   } else {
     String payload = "Temp:" + String(temperature, 1) + "C, Hum:" + String(humidity, 1) + "%"; // plaintext
     String encryptedPayload = encryptSensorData(payload); // encrypt plaintext
+    String hashOutput = hashSensorData(payload);
 
     display.println("Plaintext:"); 
     display.println(payload); // display plaintext on oled dislay
     display.println("Ciphertext");  
     display.println(encryptedPayload); // display ciphertext on oled display
+    Serial.print("Payload: ");
+    Serial.println(payload);
+    Serial.print("Encrypted(Base64): ");
+    Serial.println(encryptedPayload);
+    Serial.print("SHA-256: ");
+    Serial.println(hashOutput);
 
     //Serial.print("Humidity: "); Serial.print(humidity); Serial.println("%"); // display humidity values on the serial monitor
     //display.print("Humidity: "); display.print(humidity); display.println("%"); // display humidity values on the oled display
