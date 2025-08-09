@@ -68,7 +68,7 @@ class RegisterActivity : ComponentActivity() {
                 if (task.isSuccessful) {
                     // Sign in success, update UI with the signed-in user's information
                     Log.d(TAG, "createUserWithEmail:success")
-                    updateUI(auth.currentUser) // pass the user to updateUI
+                    updateUI(true, auth.currentUser) // pass the user to updateUI
                 } else {
                     // If sign in fails, display a message to the user
                     Log.w(TAG, "createUserWithEmail:failure", task.exception)
@@ -76,14 +76,14 @@ class RegisterActivity : ComponentActivity() {
                         baseContext, "Registration failed: ${task.exception?.message}",
                         Toast.LENGTH_LONG,
                     ).show()
-                    updateUI(null)
+                    updateUI(false, null)
                 }
             }
     }
 
     // update UI logic
-    private fun updateUI(user: FirebaseUser?) {
-        if (user != null) {
+    private fun updateUI(registrationTaskSuccessful: Boolean, user: FirebaseUser?) {
+        if (registrationTaskSuccessful && user != null) {
             // successful registration
             Log.d(TAG, "User registered successfully: ${user.email}")
             Toast.makeText(
@@ -91,22 +91,28 @@ class RegisterActivity : ComponentActivity() {
                 Toast.LENGTH_LONG,
             ).show()
 
-            // navigate to LoginActivity
-            val intent = Intent(this, LoginActivity::class.java)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            startActivity(intent)
-        } else {
+            navigateToLogin() // navigate to LoginActivity
+        } else if (!registrationTaskSuccessful) {
             // update UI for logged-out state
-            Log.d(TAG, "User is signed out")
+            Log.d(TAG, "Registration failed or user is null after attempt")
         }
     }
 
-    // reload logic
-    private fun reload() {
-        Log.d(TAG, "Reloading user state")
-        // call updateUI function
-        updateUI(auth.currentUser)
+    // Navigation to LoginActivity
+    private fun navigateToLogin() {
+        val intent = Intent(this, LoginActivity::class.java)
+        // clear the task and begin a new one for LoginActivity
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish() // Finish RegisterActivity
     }
+
+    // reload logic
+//    private fun reload() {
+//        Log.d(TAG, "Reloading user state")
+//        // call updateUI function
+//        updateUI(auth.currentUser)
+//    }
 
     // check to see if user is logged in
     public override fun onStart() {
@@ -114,7 +120,8 @@ class RegisterActivity : ComponentActivity() {
         // check if user is signed in (non-null) and update UI accordingly
         val currentUser = auth.currentUser
         if (currentUser != null) {
-            reload()
+            Log.d(TAG, "User '${currentUser.email}' already signed in. Navigating to LoginActivity.")
+            navigateToLogin()
         }
     }
 }

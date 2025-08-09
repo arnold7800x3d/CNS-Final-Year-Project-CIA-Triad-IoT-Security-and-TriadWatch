@@ -73,4 +73,7 @@ dependencies {
     // https://firebase.google.com/docs/android/setup#available-libraries
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
+
+    // navigation compose dependency
+    implementation("androidx.navigation:navigation-compose:2.9.0-alpha01")
 }
