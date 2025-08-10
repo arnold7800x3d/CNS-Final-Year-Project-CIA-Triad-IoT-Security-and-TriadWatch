@@ -9,12 +9,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -44,6 +48,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.cnsprojectii.triadwatch.ui.navigation.Screen
 import com.cnsprojectii.triadwatch.ui.navigation.bottomBarScreens
+import com.google.common.math.LinearTransformation.horizontal
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import java.text.SimpleDateFormat
@@ -197,7 +202,7 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // bar
         Box(
@@ -207,9 +212,135 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
                 .clip(RoundedCornerShape(10.dp)) // rounded bar corners
                 .background(Color.LightGray) // color of the bar
         )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // boxes to display sensor data
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp) // row spacing
+        ){
+            // first row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    TemperatureHumidityContent()
+                }
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    DistanceContent()
+                }
+            }
+
+            // second row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    ResistanceContent()
+                }
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    MotionContent()
+                }
+            }
+
+            // third row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    ESPLedContent()
+                }
+                LargeRoundedBox(modifier = Modifier.weight(1f)) {
+                    ArduinoLedContent()
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(25.dp))
+
+        Text("Sensor Data Integrity: Verified",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center)
     }
 }
 
+@Composable
+fun LargeRoundedBox(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit) {
+    Box(
+        modifier = modifier
+            //.aspectRatio(1.5f) // square
+            .height(150.dp)
+            .width(120.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.DarkGray.copy(alpha = 0.3f)) // transparent dark gray color
+            .padding(16.dp), // padding for content in the box
+        contentAlignment = Alignment.Center // Center content
+    ) {
+        content()
+    }
+}
+
+/*
+    the section below below defines the content for the various boxes in the grid
+*/
+@Composable
+fun TemperatureHumidityContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Temperature", style = MaterialTheme.typography.titleMedium)
+        Text("25°C", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Humidity", style = MaterialTheme.typography.titleMedium)
+        Text("0.0%", style = MaterialTheme.typography.bodyLarge, color = Color.Blue)
+    }
+}
+
+@Composable
+fun DistanceContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Distance", style = MaterialTheme.typography.titleMedium)
+        Text("0.0 cm", style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+fun ResistanceContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Resistance", style = MaterialTheme.typography.titleMedium)
+        Text("0 Ohms", style = MaterialTheme.typography.bodyLarge, color = Color.Cyan)
+    }
+}
+
+@Composable
+fun MotionContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Motion", style = MaterialTheme.typography.titleMedium)
+        Text("Not Detected", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
+    }
+}
+
+@Composable
+fun ESPLedContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("ESP LED", style = MaterialTheme.typography.titleMedium)
+        Text("On", style = MaterialTheme.typography.bodyLarge, color = Color.Green)
+    }
+}
+
+@Composable
+fun ArduinoLedContent() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Arduino LED", style = MaterialTheme.typography.titleMedium)
+        Text("Off", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
+    }
+}
 // function to format the timestamp for last sensor update
 @Composable
 private fun formatTimestamp(timestamp: Long): String {
