@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +17,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -27,6 +33,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -168,7 +177,7 @@ fun ApplicationNavHost(
         composable(Screen.Home.route) { HomeScreenContent(userEmail = loggedInUser?.email) }
         composable(Screen.History.route) { HistoryScreenContent() }
         composable(Screen.Nodes.route) { NodesScreenContent() }
-        composable(Screen.Settings.route) { SettingsScreenContent() }
+        composable(Screen.Settings.route) { SettingsScreenContent(userEmail = loggedInUser?.email) }
     }
 }
 
@@ -184,7 +193,7 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        val displayEmail = userEmail ?: "Guest User" // defaults to Guest User if email is null
+        val displayEmail = userEmail ?: "Not logged in" // defaults to Not logged in if email is null
 
         Text(
             text = "Welcome, $displayEmail!",
@@ -366,8 +375,67 @@ fun NodesScreenContent() {
 
 // UI for the Settings screen
 @Composable
-fun SettingsScreenContent() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Settings Screen")
+fun SettingsScreenContent(userEmail: String?) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 30.dp)
+            //.statusBarsPadding()
+            .padding(16.dp), // padding around the entire settings screen
+        horizontalAlignment = Alignment.CenterHorizontally // center content horizontally
+    ) {
+        // Profile Heading
+        Text(
+            text = "Profile",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .align(Alignment.Start)
+        )
+
+        // icon and profile information
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 10.dp, bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically // align items vertically
+        ) {
+            // profile icon
+            Icon(
+                imageVector = Icons.Filled.AccountCircle,
+                contentDescription = "Profile",
+                modifier = Modifier
+                    .size(64.dp)
+                    .padding(end = 16.dp), // space between icon and text
+                tint = MaterialTheme.colorScheme.primary // tint icon
+            )
+
+            // email and reset password column
+            Column(
+                modifier = Modifier.weight(1f) // consume remaining row space
+            ) {
+                Text(
+                    text = userEmail ?: "Not logged in", // display email or this text as a fallback in case no email is returned
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Reset password",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable{
+                        println("Reset password clicked")
+                    }
+                )
+            }
+        }
     }
 }
+
+
+
+
