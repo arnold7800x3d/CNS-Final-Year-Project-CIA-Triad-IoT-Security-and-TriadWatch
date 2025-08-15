@@ -7,7 +7,9 @@ import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -393,16 +397,130 @@ private fun formatTimestamp(timestamp: Long): String {
 // UI for the History screen
 @Composable
 fun HistoryScreenContent() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("History Screen")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 30.dp)
+            .padding(16.dp)
+    ) {
+        // History screen heading
+        Text(
+            text = "History",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier
+                .padding(bottom = 24.dp)
+                .align(Alignment.Start)
+        )
+
+        // Time series placeholder
+        GraphPlaceholder(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Graph data controls or summary here",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+    }
+}
+
+@Composable
+fun GraphPlaceholder(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .border(
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                MaterialTheme.shapes.medium
+            )
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Time Series Graph Area",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 // UI for the Nodes screen
 @Composable
 fun NodesScreenContent() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Nodes Screen")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 30.dp)
+            //.statusBarsPadding()
+            .padding(16.dp), // padding around the entire settings screen
+        horizontalAlignment = Alignment.CenterHorizontally // center content horizontally
+    ) {
+        // Nodes screen Heading
+        Text(
+            text = "Nodes",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .align(Alignment.Start)
+        )
+
+        // clickable row for ESP32 node
+        NodeItemRow(
+            icon = Icons.Filled.CheckCircle,
+            iconDescription = "ESP32 Node",
+            nodeName = "ESP32",
+            onNodeClick = {
+                println("ESP32 Node clicked")
+            }
+        )
+
+        // clickable row for Arduino MKR GSM 1400
+        NodeItemRow(
+            icon = Icons.Filled.CheckCircle,
+            iconDescription = "Arduino MKR GSM 1400 Node",
+            nodeName = "Arduino MKR GSM 1400",
+            onNodeClick = {
+                println("Arduino MKR GSM 1400 Node Clicked")
+            }
+
+        )
+    }
+}
+
+// display a node item
+@Composable
+fun NodeItemRow(
+    icon: ImageVector,
+    iconDescription: String,
+    nodeName: String,
+    onNodeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onNodeClick() }
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = iconDescription,
+            modifier = Modifier
+                .size(40.dp)
+                .padding(end = 16.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = nodeName,
+            style = MaterialTheme.typography.titleMedium
+        )
     }
 }
 
