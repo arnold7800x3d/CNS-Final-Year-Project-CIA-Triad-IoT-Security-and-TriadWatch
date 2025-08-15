@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.cnsprojectii.triadwatch" />
+                  <option name="mobileSdkAppId" value="1:976262592271:android:c69b9f529bb67a13e4307a" />
+                  <option name="projectId" value="triadwatch-fa42f" />
+                  <option name="projectNumber" value="976262592271" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
