@@ -1,7 +1,9 @@
 package com.cnsprojectii.triadwatch.ui.activities
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -75,15 +79,27 @@ class HomeActivity : AppCompatActivity() {
 
         // if user is null somehow then go back to the LoginActivity
         if (currentUser == null) {
-            val intent = Intent(this, LoginActivity::class.java)
-            startActivity(intent)
-            finish()
+            navigateToLogin()
             return // if no user then don't proceed with setContent
         }
         enableEdgeToEdge()
-        setContent{
-            MainApplicationScreen(loggedInUser = currentUser) // UI for the HomeActivity
+        setContent {
+            MainApplicationScreen(
+                loggedInUser = currentUser,
+                onLogout = { performLogout() })// UI for the HomeActivity
         }
+    }
+
+    private fun performLogout() {
+        auth.signOut()
+        navigateToLogin()
+    }
+
+    private fun navigateToLogin() {
+        val intent = Intent(this@HomeActivity, LoginActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
     }
 }
 
@@ -107,7 +123,8 @@ fun BottomNavigationBar(
             // E.g., containerColor = MaterialTheme.colorScheme.surfaceVariant
         ) {
             bottomBarScreens.forEach { screen ->
-                val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
+                val selected =
+                    currentDestination?.hierarchy?.any { it.route == screen.route } == true
                 NavigationBarItem(
                     selected = selected,
                     onClick = {
@@ -146,8 +163,12 @@ fun BottomNavigationBar(
         }
     }
 }
+
 @Composable
-fun MainApplicationScreen(loggedInUser: FirebaseUser?) { // pass the FirebaseUser to the MainApplicationScreen
+fun MainApplicationScreen(
+    loggedInUser: FirebaseUser?,
+    onLogout: () -> Unit
+) { // pass the FirebaseUser to the MainApplicationScreen
     val navController = rememberNavController()
     Scaffold(
         bottomBar = {
@@ -158,7 +179,8 @@ fun MainApplicationScreen(loggedInUser: FirebaseUser?) { // pass the FirebaseUse
         ApplicationNavHost(
             navController = navController,
             modifier = Modifier.padding(innerPadding),
-            loggedInUser = loggedInUser // pass the FirebaseUser to the ApplicationNavHost
+            loggedInUser = loggedInUser, // pass the FirebaseUser to the ApplicationNavHost
+            onLogout = onLogout
         )
     }
 }
@@ -167,7 +189,8 @@ fun MainApplicationScreen(loggedInUser: FirebaseUser?) { // pass the FirebaseUse
 fun ApplicationNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    loggedInUser: FirebaseUser? // pass the FirebaseUser
+    loggedInUser: FirebaseUser?, // pass the FirebaseUser
+    onLogout: () -> Unit
 ) {
     NavHost(
         navController = navController,
@@ -177,7 +200,12 @@ fun ApplicationNavHost(
         composable(Screen.Home.route) { HomeScreenContent(userEmail = loggedInUser?.email) }
         composable(Screen.History.route) { HistoryScreenContent() }
         composable(Screen.Nodes.route) { NodesScreenContent() }
-        composable(Screen.Settings.route) { SettingsScreenContent(userEmail = loggedInUser?.email) }
+        composable(Screen.Settings.route) {
+            SettingsScreenContent(
+                userEmail = loggedInUser?.email,
+                onLogoutClicked = onLogout
+            )
+        }
     }
 }
 
@@ -193,7 +221,8 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        val displayEmail = userEmail ?: "Not logged in" // defaults to Not logged in if email is null
+        val displayEmail =
+            userEmail ?: "Not logged in" // defaults to Not logged in if email is null
 
         Text(
             text = "Welcome, $displayEmail!",
@@ -230,7 +259,7 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp) // row spacing
-        ){
+        ) {
             // first row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -273,16 +302,19 @@ fun HomeScreenContent(userEmail: String?) { // pass the userEmail
 
         Spacer(modifier = Modifier.height(25.dp))
 
-        Text("Sensor Data Integrity: Verified",
+        Text(
+            "Sensor Data Integrity: Verified",
             style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center)
+            textAlign = TextAlign.Center
+        )
     }
 }
 
 @Composable
 fun LargeRoundedBox(
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit) {
+    content: @Composable () -> Unit
+) {
     Box(
         modifier = modifier
             //.aspectRatio(1.5f) // square
@@ -350,6 +382,7 @@ fun ArduinoLedContent() {
         Text("Off", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
     }
 }
+
 // function to format the timestamp for last sensor update
 @Composable
 private fun formatTimestamp(timestamp: Long): String {
@@ -375,7 +408,7 @@ fun NodesScreenContent() {
 
 // UI for the Settings screen
 @Composable
-fun SettingsScreenContent(userEmail: String?) {
+fun SettingsScreenContent(userEmail: String?, onLogoutClicked: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -387,7 +420,7 @@ fun SettingsScreenContent(userEmail: String?) {
         // Profile Heading
         Text(
             text = "Profile",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier
                 .padding(bottom = 8.dp)
                 .align(Alignment.Start)
@@ -415,7 +448,8 @@ fun SettingsScreenContent(userEmail: String?) {
                 modifier = Modifier.weight(1f) // consume remaining row space
             ) {
                 Text(
-                    text = userEmail ?: "Not logged in", // display email or this text as a fallback in case no email is returned
+                    text = userEmail
+                        ?: "Not logged in", // display email or this text as a fallback in case no email is returned
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -427,12 +461,163 @@ fun SettingsScreenContent(userEmail: String?) {
                     text = "Reset password",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable{
+                    modifier = Modifier.clickable {
                         println("Reset password clicked")
                     }
                 )
             }
         }
+
+        // settings section
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .align(Alignment.Start)
+        )
+
+        // settings options
+        Text(
+            text = "Theme",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+                // .fillMaxWidth() make the entire width of the option clickable
+                .clickable {
+                    println("App theme clicked")
+                }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Metrics units",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+                .clickable {
+                    println("Metrics units clicked")
+                }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Notifications",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+                .clickable {
+                    println("Notifications clicked")
+                }
+        )
+
+        // app information section
+        Text(
+            text = "App Information",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .align(Alignment.Start)
+        )
+
+        // settings options
+        Text(
+            text = "Version",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+        )
+
+        Text(
+            text = "1.0.0",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Contact/Support Information",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+        )
+
+        // handle contact information to allow calling the phone number provided when clicked
+        val context = LocalContext.current
+        val phoneNumber = "+254795975000"
+        val developerName = "Arnold Ochieng' (App Developer)"
+        val fullContactText = "$phoneNumber - $developerName"
+
+        Text(
+            text = fullContactText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .align(Alignment.Start)
+                .clickable {
+                    // intent to open the dialer
+                    val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                        data = Uri.parse("tel:$phoneNumber")
+                    }
+                    Log.d("DialIntentDebug", "Intent Action: ${dialIntent.action}")
+                    Log.d("DialIntentDebug", "Intent Data: ${dialIntent.dataString}")
+
+                    // verify the existence of an app to handle the intent
+                    if (dialIntent.resolveActivity(context.packageManager) != null) {
+                        context.startActivity(dialIntent)
+                    } else {
+                        // no app found to handle the dial intent
+                        Log.e(
+                            "DialIntentDebug",
+                            "No activity found to handle intent. Package Manager: ${context.packageManager}"
+                        )
+                        println("No app found to handle dialing for $phoneNumber")
+                    }
+                }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "View Docs",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .align(Alignment.Start)
+                .clickable {
+                    println("View Docs clicked")
+                }
+        )
+
+        // spacer to consume the space left empty
+        Spacer(modifier = Modifier.weight(1f))
+
+        // bar
+        Divider(
+            color = Color.LightGray,
+            thickness = 1.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp) // space below and above the divider
+        )
+
+        // logout text button
+        Text(
+            text = "Logout",
+            color = Color.Red,
+            style = MaterialTheme.typography.titleMedium.copy(
+                textAlign = TextAlign.Center // center the logout button
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    onLogoutClicked() // call lambda function
+                }
+                .padding(bottom = 16.dp)
+        )
     }
 }
 
