@@ -5,6 +5,7 @@ plugins {
 
     // Add the Google services Gradle plugin
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -76,4 +77,12 @@ dependencies {
 
     // navigation compose dependency
     implementation("androidx.navigation:navigation-compose:2.9.0-alpha01")
+
+    // Add the dependency for Firebase Crashlytics
+    implementation("com.google.firebase:firebase-crashlytics")
+
+    // Add this for Firebase Realtime Database
+    implementation("com.google.firebase:firebase-database")
+
+    implementation("androidx.compose.material:material-icons-extended-android:1.6.8")
 }
