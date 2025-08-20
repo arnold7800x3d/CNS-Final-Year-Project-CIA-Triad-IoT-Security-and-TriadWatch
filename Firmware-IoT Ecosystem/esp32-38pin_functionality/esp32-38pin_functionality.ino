@@ -87,7 +87,7 @@ byte aesKey[] = {
 
 // Timer for sensor reads
 unsigned long lastSensorRead = 0;
-const unsigned long SENSOR_INTERVAL = 5000;  // 3 seconds
+const unsigned long SENSOR_INTERVAL = 3000;  // 3 seconds
 
 String encryptSensorData(String inputData) {
   const byte* plaintext = (const byte*)inputData.c_str();
@@ -223,65 +223,96 @@ void loop() {
   if (Firebase.RTDB.readStream(&fbLedData)) {
     if (fbLedData.streamAvailable()) {
       String ledState = fbLedData.stringData();
-      if (ledState == "ON") {
-        digitalWrite(ledPin, HIGH);
+      // Expecting a boolean from the Android app for LED state
+      if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
+        bool ledIsOn = fbLedData.boolData();  // <-- Read as boolean
+        Serial.print("Received LED state (boolean): ");
+        Serial.println(ledIsOn ? "true (ON)" : "false (OFF)");
+        if (ledIsOn) {
+          digitalWrite(ledPin, HIGH);
+          Serial.println("ESP LED Turned ON");
+        } else {
+          digitalWrite(ledPin, LOW);
+          Serial.println("ESP LED Turned OFF");
+        }
+      }
+      // You can keep a fallback for string, but the primary path should be boolean
+      else if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
+        String ledStateStr = fbLedData.stringData();
+        Serial.print("Received LED state (string - unexpected for app): ");
+        Serial.println(ledStateStr);
+        if (ledStateStr.equalsIgnoreCase("true") || ledStateStr.equalsIgnoreCase("on")) {
+          digitalWrite(ledPin, HIGH);
+        } else if (ledStateStr.equalsIgnoreCase("false") || ledStateStr.equalsIgnoreCase("off")) {
+          digitalWrite(ledPin, LOW);
+        }
       } else {
-        digitalWrite(ledPin, LOW);
+        Serial.print("Unexpected data type for LED state: ");
+        Serial.println(fbLedData.dataType());
       }
     }
   }
 
-  // Clear OLED and set cursor
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 0);
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastSensorRead >= SENSOR_INTERVAL) {
+    lastSensorRead = currentMillis;
 
-  // Read DHT11 sensor
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println("Failed to read from DHT sensor!");
-    display.print("DHT11 module error");
-  } else {
+    Serial.println("-------------------------------------");
+    Serial.println("Reading sensors and sending to Firebase...");
 
-    // Prepare payload strings
-    String tempPayload = "Temp:" + String(temperature, 1) + "°C";
-    String humidityPayload = "Humidity:" + String(humidity, 1) + "%";
+    // Clear OLED and set cursor
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 0);
 
-    // Encrypt
-    String tempEncrypted = encryptSensorData(tempPayload);
-    String humidityEncrypted = encryptSensorData(humidityPayload);
+    // Read DHT11 sensor
+    float humidity = dht.readHumidity();
+    float temperature = dht.readTemperature();
+    if (isnan(humidity) || isnan(temperature)) {
+      Serial.println("Failed to read from DHT sensor!");
+      display.print("DHT11 module error");
+    } else {
 
-    // Hash
-    String tempHash = hashSensorData(tempPayload);
-    String humidityHash = hashSensorData(humidityPayload);
+      // Prepare payload strings
+      String tempPayload = "Temp:" + String(temperature, 1) + "°C";
+      String humidityPayload = "Humidity:" + String(humidity, 1) + "%";
 
-    // Log to Firebase with proper history
-    sendSensorToFirebase("temperature", tempEncrypted, tempHash);
-    sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
+      // Encrypt
+      String tempEncrypted = encryptSensorData(tempPayload);
+      String humidityEncrypted = encryptSensorData(humidityPayload);
 
-    // Display on OLED
-    String combinedPayload = tempPayload + ", " + humidityPayload;
-    display.println("Plaintext:");
-    display.println(combinedPayload);
-    display.println("Ciphertext (Temp):");
-    display.println(tempEncrypted);
-    display.println("Ciphertext (Hum):");
-    display.println(humidityEncrypted);
+      // Hash
+      String tempHash = hashSensorData(tempPayload);
+      String humidityHash = hashSensorData(humidityPayload);
 
-    // Serial output
-    Serial.print("Payload: ");
-    Serial.println(combinedPayload);
-    Serial.print("Encrypted Temp: ");
-    Serial.println(tempEncrypted);
-    Serial.print("SHA-256 Temp: ");
-    Serial.println(tempHash);
-    Serial.print("Encrypted Hum: ");
-    Serial.println(humidityEncrypted);
-    Serial.print("SHA-256 Hum: ");
-    Serial.println(humidityHash);
+      // Log to Firebase with proper history
+      sendSensorToFirebase("temperature", tempEncrypted, tempHash);
+      sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
+
+      // Display on OLED
+      String combinedPayload = tempPayload + ", " + humidityPayload;
+      display.println("Plaintext:");
+      display.println(combinedPayload);
+      display.println("Ciphertext (Temp):");
+      display.println(tempEncrypted);
+      display.println("Ciphertext (Hum):");
+      display.println(humidityEncrypted);
+
+      // Serial output
+      Serial.print("Payload: ");
+      Serial.println(combinedPayload);
+      Serial.print("Encrypted Temp: ");
+      Serial.println(tempEncrypted);
+      Serial.print("SHA-256 Temp: ");
+      Serial.println(tempHash);
+      Serial.print("Encrypted Hum: ");
+      Serial.println(humidityEncrypted);
+      Serial.print("SHA-256 Hum: ");
+      Serial.println(humidityHash);
+    }
+    display.display();
+    Serial.println("Sensor data processing and Firebase send complete.");
+    Serial.println("-------------------------------------");
   }
-  display.display();
-  delay(3000);
 }
