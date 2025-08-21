@@ -1,16 +1,14 @@
 /*
-this is the source code for the arduino mkr gsm 1400 functionality of the bank monitoring file. it features:
-  - arduino mkr gsm 1400      - microcontroller
-  - ultrasonic sensor         - detect approaching objects
-  - light dependent resistor  - detect for light based tampering
-  - buzzer                    - alarm indicator
-  - LED                       - status indicator
-  - OLED screen               - display
+  Refactored Arduino MKR GSM 1400 code
+  Features:
+    - ultrasonic sensor         - detect approaching objects
+    - light dependent resistor  - detect light-based tampering
+    - buzzer                    - alarm indicator
+    - OLED screen               - display
 */
 
 // libraries
-#include <Servo.h> // servo motor library
-// OLED display libraries
+#include <Servo.h>
 #include <Adafruit_SSD1306.h> 
 #include <Adafruit_GFX.h>
 
@@ -22,7 +20,6 @@ this is the source code for the arduino mkr gsm 1400 functionality of the bank m
 
 // variables
 const int servoPin = 6; // pin for the servo motor
-const int ledPin = 0; // pin for the LED
 const int buzzerPin = 1; // pin for the buzzer
 const int ldrPin = A0; // pin for the LDR
 const int trigPin = 7; // pin for the ultrasonic trigger
@@ -30,18 +27,15 @@ const int echoPin = 5; // pin for the ultrasonic echo
 long duration, cm, inches; // ultrasonic distance variables
 
 // servo timing variables and objects
-Servo servoMotor; // servo motor object
-int angle = 0; // angle of the servo motor
-unsigned long lastMotionTime = 0; // track the last time the servo motor moved
+Servo servoMotor; 
+int angle = 0; 
+unsigned long lastMotionTime = 0;
 
 // buzzer state variable
-bool buzzerOn = false; // track buzzer state
-
-//led state variable
-bool ledOn = false;
+bool buzzerOn = false;
 
 // light detection variables
-unsigned long lastLightDetectionTime = 0; // track the last time light was detected 
+unsigned long lastLightDetectionTime = 0; 
 
 // objects
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -49,13 +43,12 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 void setup() {
   Serial.begin(9600);
 
-  pinMode(ledPin, OUTPUT); // set ledPin as an output
-  pinMode(buzzerPin, OUTPUT); // set buzzerPin as an output
-  pinMode(ldrPin, INPUT); // set ldrPin as an output
-  pinMode(trigPin, OUTPUT); // set trigPin as an output
-  pinMode(echoPin, INPUT); // set echoPin as an input
+  pinMode(buzzerPin, OUTPUT); 
+  pinMode(ldrPin, INPUT); 
+  pinMode(trigPin, OUTPUT); 
+  pinMode(echoPin, INPUT); 
 
-  // initializion of the OLED display
+  // OLED initialization
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for (;;);
@@ -74,22 +67,19 @@ void setup() {
 }
 
 void loop() {
-  // oled display
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
   
-  detectObject(); // call function to detect objects
-  detectLight(); // call function to detect light
+  detectObject(); 
+  detectLight(); 
 
-  digitalWrite(ledPin, ledOn ? HIGH : LOW); // set the LED state 
-  ledOn = false; // reset flag for next flag
-  display.display()
+  display.display();
   delay(1000);
 }
 
-// this function utilizes the ultrasonic sensor and the servo motor to detect approaching objects
+// ultrasonic scanning
 void detectObject() {
   unsigned long currentTime = millis();
 
@@ -101,12 +91,12 @@ void detectObject() {
       measureDistance(angle);
       angle += 10;
     } else { 
-      angle = 0; // reset for full scan again
+      angle = 0; 
     }
   }
 }
 
-// function to measure the distance between the objects at specific angles
+// measure distance
 void measureDistance(int angle) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(5);
@@ -118,23 +108,20 @@ void measureDistance(int angle) {
   cm = (duration / 2) / 29.1;
   inches = (duration / 2) / 74;
 
-  Serial.print("Angle: "); Serial.println(angle); // print the angle at which the distance was taken
-  Serial.print("Distance: "); Serial.print(cm); Serial.println(" cm"); // print the distance
+  Serial.print("Angle: "); Serial.println(angle);
+  Serial.print("Distance: "); Serial.print(cm); Serial.println(" cm");
 
-  // print on the OLED display
   display.print("Angle: "); display.println(angle);
   display.print("Distance: "); display.print(cm); display.println("cm");
 
-  // if distance to object is less than 10cm, sound the alarm
   if (cm <= 10) {
     soundBuzzer();
-    ledOn = true;
   } else {
     turnBuzzerOff();
   }
 }
 
-// function to sound the buzzer
+// buzzer functions
 void soundBuzzer() {
   if (!buzzerOn) {
     tone(buzzerPin, 2000);
@@ -142,7 +129,6 @@ void soundBuzzer() {
   }
 }
 
-// function to turn off the buzzer
 void turnBuzzerOff() {
   if (buzzerOn) {
     noTone(buzzerPin);
@@ -150,23 +136,22 @@ void turnBuzzerOff() {
   }
 }
 
-// function to detect light
+// detect light
 void detectLight() {
   unsigned long currentTime = millis();
   
   if (currentTime - lastLightDetectionTime >= 300) {
     lastLightDetectionTime = currentTime;
 
-    int ldrValue = analogRead(ldrPin); // read value from the ldr
-    Serial.print("LDR value: "); Serial.println(ldrValue); // print the value
-    display.print("LRD value: "); display.println(ldrValue); // print on the display
+    int ldrValue = analogRead(ldrPin); 
+    Serial.print("LDR value: "); Serial.println(ldrValue); 
+    display.print("LDR value: "); display.println(ldrValue); 
 
-    if (ldrValue >= 400) {
+    if (ldrValue <= 400) {
       tone(buzzerPin, 2000);
-      ledOn = true;
     } else {
       if (!buzzerOn) {
-        noTone(buzzerPin); // if buzzer is active via the object detection have the buzzer off
+        noTone(buzzerPin);
       }
     }
   }

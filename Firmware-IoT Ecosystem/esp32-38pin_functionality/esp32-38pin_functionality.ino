@@ -33,13 +33,13 @@
 #define OLED_RESET -1
 #define SCREEN_ADDRESS 0X3C
 
-#define LED_DB_PATH "/triadwatch/commands/espLed"
+#define LED_DB_PATH "/triadwatch/commands/espLed" // setup for LED commands for the Mobile App
 
 const int ledPin = 2;  // pin for the LED
 
 // time settings
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3 * 3600;  // Adjust for your timezone (e.g., GMT+3)
+const long gmtOffset_sec = 3 * 3600;  // (GMT + 3)
 const int daylightOffset_sec = 0;
 
 time_t bootTime;  // store the actual UTC time at boot
@@ -52,21 +52,22 @@ FirebaseAuth auth;
 FirebaseConfig config;
 FirebaseData fbLedData;
 
+// function to upload sensor data to Firebase Realtime DB
 void sendSensorToFirebase(String type, String encrypted, String hash) {
   String path = "/bank_monitoring/sensors/" + type;
 
-  // Compute current UTC timestamp
+  // compute current UTC timestamp
   time_t timestamp = bootTime + millis() / 1000;
 
-  // Create JSON object for this reading
+  // create JSON object sensor reading
   FirebaseJson json;
   json.set("encrypted", encrypted);
   json.set("hash", hash);
   json.set("timestamp", timestamp);
 
-  // Push JSON object as a single reading
+  // push JSON object as a single reading
   if (Firebase.RTDB.pushJSON(&fbData, path, &json)) {
-    // Update "latest" snapshot
+    // update "latest" snapshot of the sensor data which will be shown in the mobile application
     Firebase.RTDB.setString(&fbData, path + "/latest", encrypted);
     Firebase.RTDB.setString(&fbData, path + "/hash", hash);
     Firebase.RTDB.setInt(&fbData, path + "/timestamp", timestamp);
@@ -77,7 +78,7 @@ void sendSensorToFirebase(String type, String encrypted, String hash) {
 }
 
 
-// 32-byte AES-256 key (DO NOT randomly generate this each time!)
+// 32-byte AES-256 key (developer defined)
 byte aesKey[] = {
   21, 42, 63, 84, 105, 126, 147, 168,
   189, 210, 231, 252, 17, 34, 51, 68,
@@ -85,10 +86,11 @@ byte aesKey[] = {
   221, 238, 255, 1, 18, 35, 52, 69
 };
 
-// Timer for sensor reads
+// Timer for sensor reads to implement non-blocking to reduce LED toggle delay
 unsigned long lastSensorRead = 0;
 const unsigned long SENSOR_INTERVAL = 3000;  // 3 seconds
 
+// function to encrypt the sensor data using AES-256
 String encryptSensorData(String inputData) {
   const byte* plaintext = (const byte*)inputData.c_str();
   int inputDataLength = inputData.length();
@@ -120,7 +122,7 @@ String encryptSensorData(String inputData) {
   base64::encode(finalOutput, totalLength, base64EncodedOutput);
   base64EncodedOutput[base64::encodeLength(totalLength)] = '\0';
 
-  // Debug logs
+  // serial output for debugging
   Serial.print("IV length: ");
   Serial.println(16);
   Serial.print("Ciphertext length: ");
@@ -133,7 +135,7 @@ String encryptSensorData(String inputData) {
   return String(base64EncodedOutput);
 }
 
-
+// function to hash the sensor data using SHA-256
 String hashSensorData(String input) {
   byte SHAResult[32];  // 32 bytes bytes for SHA-256 output
   mbedtls_sha256_context ctx;
@@ -157,12 +159,11 @@ String hashSensorData(String input) {
 void setup() {
   Serial.begin(9600);
 
+  // LED setup
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
 
-  //Firebase.RTDB.beginStream(&fbData, "/bank_monitoring/actuators/led/state");
-
-  // Connect to Wi-Fi
+  // connect to Wi-Fi
   WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -171,7 +172,7 @@ void setup() {
   }
   Serial.println("Connected!");
 
-  // Initialize NTP
+  // initialize NTP to get the current time information
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Serial.println("Fetching NTP time...");
   struct tm timeinfo;
@@ -180,12 +181,12 @@ void setup() {
     delay(500);
   }
 
-  // Store boot time as reference
+  // store the ESP boot time as reference
   bootTime = time(nullptr);
   Serial.print("Boot UTC time: ");
   Serial.println(bootTime);
 
-  // Firebase config
+  // firebase initialization and config
   config.api_key = SECRET_API_KEY;
   config.database_url = SECRET_DATABASE_URL;
 
@@ -195,14 +196,14 @@ void setup() {
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
 
-  // Start Firebase stream for LED
+  // begin Firebase stream for the LED
   if (!Firebase.RTDB.beginStream(&fbLedData, LED_DB_PATH)) {
     Serial.println("Failed to begin stream for LED:");
     Serial.println(fbLedData.errorReason());
   }
 
   // initialization of the OLED display
-  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {  // Address 0x3D for 128x64
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {  
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
       ;
@@ -223,11 +224,14 @@ void loop() {
   if (Firebase.RTDB.readStream(&fbLedData)) {
     if (fbLedData.streamAvailable()) {
       String ledState = fbLedData.stringData();
-      // Expecting a boolean from the Android app for LED state
+
+      // setup to expect a boolean value from the mobile app for the LED state
       if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
-        bool ledIsOn = fbLedData.boolData();  // <-- Read as boolean
+        bool ledIsOn = fbLedData.boolData();  // read value as boolean
         Serial.print("Received LED state (boolean): ");
         Serial.println(ledIsOn ? "true (ON)" : "false (OFF)");
+
+        // LED toggle
         if (ledIsOn) {
           digitalWrite(ledPin, HIGH);
           Serial.println("ESP LED Turned ON");
@@ -236,7 +240,8 @@ void loop() {
           Serial.println("ESP LED Turned OFF");
         }
       }
-      // You can keep a fallback for string, but the primary path should be boolean
+
+      // implement a string as a fallback but the primary value should be a boolean
       else if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
         String ledStateStr = fbLedData.stringData();
         Serial.print("Received LED state (string - unexpected for app): ");
@@ -253,6 +258,7 @@ void loop() {
     }
   }
 
+  // implement non-blocking for the LED toggle
   unsigned long currentMillis = millis();
   if (currentMillis - lastSensorRead >= SENSOR_INTERVAL) {
     lastSensorRead = currentMillis;
@@ -260,13 +266,13 @@ void loop() {
     Serial.println("-------------------------------------");
     Serial.println("Reading sensors and sending to Firebase...");
 
-    // Clear OLED and set cursor
+    // clear OLED and set cursor
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
 
-    // Read DHT11 sensor
+    // read temperature and humidity from the DHT11 module
     float humidity = dht.readHumidity();
     float temperature = dht.readTemperature();
     if (isnan(humidity) || isnan(temperature)) {
@@ -274,23 +280,23 @@ void loop() {
       display.print("DHT11 module error");
     } else {
 
-      // Prepare payload strings
+      // prepare payload strings
       String tempPayload = "Temp:" + String(temperature, 1) + "°C";
       String humidityPayload = "Humidity:" + String(humidity, 1) + "%";
 
-      // Encrypt
+      // encrypt the sensor data
       String tempEncrypted = encryptSensorData(tempPayload);
       String humidityEncrypted = encryptSensorData(humidityPayload);
 
-      // Hash
+      // compute the hash for the sensor data
       String tempHash = hashSensorData(tempPayload);
       String humidityHash = hashSensorData(humidityPayload);
 
-      // Log to Firebase with proper history
+      // log to Firebase 
       sendSensorToFirebase("temperature", tempEncrypted, tempHash);
       sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
 
-      // Display on OLED
+      // display on OLED
       String combinedPayload = tempPayload + ", " + humidityPayload;
       display.println("Plaintext:");
       display.println(combinedPayload);
@@ -299,7 +305,7 @@ void loop() {
       display.println("Ciphertext (Hum):");
       display.println(humidityEncrypted);
 
-      // Serial output
+      // serial output
       Serial.print("Payload: ");
       Serial.println(combinedPayload);
       Serial.print("Encrypted Temp: ");
