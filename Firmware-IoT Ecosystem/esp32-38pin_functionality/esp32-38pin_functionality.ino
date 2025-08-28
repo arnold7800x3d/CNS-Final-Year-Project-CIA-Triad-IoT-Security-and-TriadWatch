@@ -44,6 +44,10 @@ const int blueLEDPin = 25;
 const int whiteLEDPin = 26;
 const int buzzerPin = 19;
 const int ldrPin = 34;
+const int trigPin = 18;
+const int echoPin = 5;
+long duration, distance;
+
 // time settings
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3 * 3600;  // (GMT + 3)
@@ -174,6 +178,8 @@ void setup() {
   digitalWrite(whiteLEDPin, LOW);
   pinMode(ldrPin, INPUT);
   pinMode(buzzerPin, OUTPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
 
   // connect to Wi-Fi
   WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
@@ -338,6 +344,15 @@ void loop() {
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
 
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    duration = pulseIn(echoPin, HIGH);
+    distance = (duration / 2) / 29.1;
+
     // read temperature and humidity from the DHT11 module
     float humidity = dht.readHumidity();
     float temperature = dht.readTemperature();
@@ -354,29 +369,33 @@ void loop() {
       String tempPayload = "Temp:" + String(temperature, 1) + "°C";
       String humidityPayload = "Humidity:" + String(humidity, 1) + "%";
       String ldrPayload = "LDR:" + String(ldrValue) + "Ω";
+      String distancePayload = "Distance:" + String(distance) + "cm";
 
       // encrypt the sensor data
       String tempEncrypted = encryptSensorData(tempPayload);
       String humidityEncrypted = encryptSensorData(humidityPayload);
       String ldrEncrypted = encryptSensorData(ldrPayload);
+      String distanceEncrypted = encryptSensorData(distancePayload);
       
       // compute the hash for the sensor data
       String tempHash = hashSensorData(tempPayload);
       String humidityHash = hashSensorData(humidityPayload);
       String ldrHash = hashSensorData(ldrPayload);
+      String distanceHash = hashSensorData(distancePayload);
 
       // log to Firebase 
       sendSensorToFirebase("temperature", tempEncrypted, tempHash);
       sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
       sendSensorToFirebase("ldr", ldrEncrypted, ldrHash);
+      sendSensorToFirebase("distance", distanceEncrypted, distanceHash);
 
       // display on OLED
-      String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload;
+      String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload + ", " + distancePayload;
       display.println("Plaintext:");
       display.println(combinedPayload);
       display.println("Ciphertext (Temp):");
       display.println(tempEncrypted);
-      display.println("Ciphertext (Hum):");
+      display.println("Ciphertext (Humidity):");
       display.println(humidityEncrypted);
 
       // serial output
@@ -387,6 +406,8 @@ void loop() {
       Serial.print("SHA-256 Hum: "); Serial.println(humidityHash);
       Serial.print("Encrypted LDR: "); Serial.println(ldrEncrypted);
       Serial.print("SHA-256 LDR: "); Serial.println(ldrHash);
+      Serial.print("Encrypted distance: "); Serial.println(distanceEncrypted);
+      Serial.print("SHA-256 Distance: "); Serial.println(distanceHash);
     }
     display.display();
     Serial.println("Sensor data processing and Firebase send complete.");
