@@ -1,11 +1,13 @@
 /*
   this is the source code for the esp32 38-pin functionality of the bank monitoring system. it features:
-    - esp32 38pin   - microcontroller
-    - dht11 module  - temperature and humidity readings
-    - OLED display  - display
-    - LED           - status indicators
-    - PIR           - detect motion
-    - buzzer        - alarm indicator
+    - esp32 38pin               - microcontroller
+    - dht11 module              - temperature and humidity readings
+    - OLED display              - display
+    - LED                       - status indicators
+    - PIR                       - detect motion
+    - buzzer                    - alarm indicator
+    - light dependent resistor  - detect light based tampering
+    - ultrasonic sensor         - detect approaching objects
 */
 
 // import necessary libraries
@@ -16,7 +18,7 @@
 #include <mbedtls/aes.h>       // AES-256 encryption library
 #include "mbedtls/sha256.h"    // SHA-256 encryption
 #include "arduino_base64.hpp"  // base64 encoding library
-#include "secrets.h"
+#include "secrets.h" // file containing WiFi credentials
 
 // WiFi transmission and Firebase
 #include <WiFi.h>
@@ -31,15 +33,20 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-#define SCREEN_ADDRESS 0X3C
+#define SCREEN_ADDRESS 0x3C
 
-#define LED_DB_PATH "/triadwatch/commands/espLed"
+// LED command paths
+#define BLUE_LED_DB_PATH "/triadwatch/commands/blueLED" 
+#define WHITE_LED_DB_PATH "triadwatch/commands/whiteLED"
 
-const int ledPin = 2;  // pin for the LED
-
+// pin configurations
+const int blueLEDPin = 25;  
+const int whiteLEDPin = 26;
+const int buzzerPin = 19;
+const int ldrPin = 34;
 // time settings
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3 * 3600;  // Adjust for your timezone (e.g., GMT+3)
+const long gmtOffset_sec = 3 * 3600;  // (GMT + 3)
 const int daylightOffset_sec = 0;
 
 time_t bootTime;  // store the actual UTC time at boot
@@ -50,23 +57,25 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 FirebaseData fbData;
 FirebaseAuth auth;
 FirebaseConfig config;
-FirebaseData fbLedData;
+FirebaseData fbBlueLEDData;
+FirebaseData fbWhiteLEDData;
 
+// function to upload sensor data to Firebase Realtime DB
 void sendSensorToFirebase(String type, String encrypted, String hash) {
   String path = "/bank_monitoring/sensors/" + type;
 
-  // Compute current UTC timestamp
+  // compute current UTC timestamp
   time_t timestamp = bootTime + millis() / 1000;
 
-  // Create JSON object for this reading
+  // create JSON object sensor reading
   FirebaseJson json;
   json.set("encrypted", encrypted);
   json.set("hash", hash);
   json.set("timestamp", timestamp);
 
-  // Push JSON object as a single reading
+  // push JSON object as a single reading
   if (Firebase.RTDB.pushJSON(&fbData, path, &json)) {
-    // Update "latest" snapshot
+    // update "latest" snapshot of the sensor data which will be shown in the mobile application
     Firebase.RTDB.setString(&fbData, path + "/latest", encrypted);
     Firebase.RTDB.setString(&fbData, path + "/hash", hash);
     Firebase.RTDB.setInt(&fbData, path + "/timestamp", timestamp);
@@ -77,7 +86,7 @@ void sendSensorToFirebase(String type, String encrypted, String hash) {
 }
 
 
-// 32-byte AES-256 key (DO NOT randomly generate this each time!)
+// 32-byte AES-256 key (developer defined)
 byte aesKey[] = {
   21, 42, 63, 84, 105, 126, 147, 168,
   189, 210, 231, 252, 17, 34, 51, 68,
@@ -85,10 +94,11 @@ byte aesKey[] = {
   221, 238, 255, 1, 18, 35, 52, 69
 };
 
-// Timer for sensor reads
+// Timer for sensor reads to implement non-blocking to reduce LED toggle delay
 unsigned long lastSensorRead = 0;
 const unsigned long SENSOR_INTERVAL = 3000;  // 3 seconds
 
+// function to encrypt the sensor data using AES-256
 String encryptSensorData(String inputData) {
   const byte* plaintext = (const byte*)inputData.c_str();
   int inputDataLength = inputData.length();
@@ -120,7 +130,7 @@ String encryptSensorData(String inputData) {
   base64::encode(finalOutput, totalLength, base64EncodedOutput);
   base64EncodedOutput[base64::encodeLength(totalLength)] = '\0';
 
-  // Debug logs
+  // serial output for debugging
   Serial.print("IV length: ");
   Serial.println(16);
   Serial.print("Ciphertext length: ");
@@ -133,7 +143,7 @@ String encryptSensorData(String inputData) {
   return String(base64EncodedOutput);
 }
 
-
+// function to hash the sensor data using SHA-256
 String hashSensorData(String input) {
   byte SHAResult[32];  // 32 bytes bytes for SHA-256 output
   mbedtls_sha256_context ctx;
@@ -157,12 +167,15 @@ String hashSensorData(String input) {
 void setup() {
   Serial.begin(9600);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
+  // pin setup
+  pinMode(blueLEDPin, OUTPUT);
+  pinMode(whiteLEDPin, OUTPUT);
+  digitalWrite(blueLEDPin, LOW);
+  digitalWrite(whiteLEDPin, LOW);
+  pinMode(ldrPin, INPUT);
+  pinMode(buzzerPin, OUTPUT);
 
-  //Firebase.RTDB.beginStream(&fbData, "/bank_monitoring/actuators/led/state");
-
-  // Connect to Wi-Fi
+  // connect to Wi-Fi
   WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -171,7 +184,7 @@ void setup() {
   }
   Serial.println("Connected!");
 
-  // Initialize NTP
+  // initialize NTP to get the current time information
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Serial.println("Fetching NTP time...");
   struct tm timeinfo;
@@ -180,12 +193,12 @@ void setup() {
     delay(500);
   }
 
-  // Store boot time as reference
+  // store the ESP boot time as reference
   bootTime = time(nullptr);
   Serial.print("Boot UTC time: ");
   Serial.println(bootTime);
 
-  // Firebase config
+  // firebase initialization and config
   config.api_key = SECRET_API_KEY;
   config.database_url = SECRET_DATABASE_URL;
 
@@ -195,14 +208,18 @@ void setup() {
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
 
-  // Start Firebase stream for LED
-  if (!Firebase.RTDB.beginStream(&fbLedData, LED_DB_PATH)) {
-    Serial.println("Failed to begin stream for LED:");
-    Serial.println(fbLedData.errorReason());
+  // begin Firebase stream for the LEDs
+  if (!Firebase.RTDB.beginStream(&fbBlueLEDData, BLUE_LED_DB_PATH)) {
+    Serial.println("Failed to begin stream for Blue LED:");
+    Serial.println(fbBlueLEDData.errorReason());
   }
 
+  if (!Firebase.RTDB.beginStream(&fbWhiteLEDData, WHITE_LED_DB_PATH)) {
+    Serial.println("Failed to begin stream for White LED:");
+    Serial.println(fbWhiteLEDData.errorReason());
+  }
   // initialization of the OLED display
-  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {  // Address 0x3D for 128x64
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {  
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
       ;
@@ -220,39 +237,94 @@ void setup() {
 }
 
 void loop() {
-  if (Firebase.RTDB.readStream(&fbLedData)) {
-    if (fbLedData.streamAvailable()) {
-      String ledState = fbLedData.stringData();
-      // Expecting a boolean from the Android app for LED state
-      if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
-        bool ledIsOn = fbLedData.boolData();  // <-- Read as boolean
-        Serial.print("Received LED state (boolean): ");
-        Serial.println(ledIsOn ? "true (ON)" : "false (OFF)");
-        if (ledIsOn) {
-          digitalWrite(ledPin, HIGH);
-          Serial.println("ESP LED Turned ON");
+    if (Firebase.RTDB.readStream(&fbBlueLEDData)) { // check stream for blue LED
+    if (fbBlueLEDData.streamAvailable()) {
+      Serial.println("--- Blue LED Stream Event ---"); // differentiate logs
+      Serial.print("Path: "); Serial.println(fbBlueLEDData.dataPath());
+      Serial.print("Type: "); Serial.println(fbBlueLEDData.eventType());
+
+      // expecting a boolean value from the mobile app for the LED state
+      if (fbBlueLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
+        bool blueLEDIsOn = fbBlueLEDData.boolData();  // read value as boolean
+        Serial.print("Received Blue LED state (boolean): ");
+        Serial.println(blueLEDIsOn ? "true (ON)" : "false (OFF)");
+
+        // blue LED toggle
+        if (blueLEDIsOn) {
+          digitalWrite(blueLEDPin, HIGH);
+          Serial.println("Blue LED Turned ON");
         } else {
-          digitalWrite(ledPin, LOW);
-          Serial.println("ESP LED Turned OFF");
+          digitalWrite(blueLEDPin, LOW);  
+          Serial.println("Blue LED Turned OFF");
         }
       }
-      // You can keep a fallback for string, but the primary path should be boolean
-      else if (fbLedData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
-        String ledStateStr = fbLedData.stringData();
-        Serial.print("Received LED state (string - unexpected for app): ");
-        Serial.println(ledStateStr);
-        if (ledStateStr.equalsIgnoreCase("true") || ledStateStr.equalsIgnoreCase("on")) {
-          digitalWrite(ledPin, HIGH);
-        } else if (ledStateStr.equalsIgnoreCase("false") || ledStateStr.equalsIgnoreCase("off")) {
-          digitalWrite(ledPin, LOW);
+      // fallback for string data for Blue LED
+      else if (fbBlueLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
+        String blueLEDStateStr = fbBlueLEDData.stringData();
+        Serial.print("Received Blue LED state (string - manual test?): ");
+        Serial.println(blueLEDStateStr);
+        if (blueLEDStateStr.equalsIgnoreCase("true") || blueLEDStateStr.equalsIgnoreCase("on")) {
+          digitalWrite(blueLEDPin, HIGH);
+          Serial.println("Blue LED Turned ON (from string)");
+        } else if (blueLEDStateStr.equalsIgnoreCase("false") || blueLEDStateStr.equalsIgnoreCase("off")) {
+          digitalWrite(blueLEDPin, LOW);  
+          Serial.println("Blue LED Turned OFF (from string)");
+        } else {
+          Serial.print("Unknown string value for Blue LED state: "); Serial.println(blueLEDStateStr);
         }
       } else {
-        Serial.print("Unexpected data type for LED state: ");
-        Serial.println(fbLedData.dataType());
+        Serial.print("Unexpected data type for Blue LED state: ");
+        Serial.println(fbBlueLEDData.dataType());
+        Serial.print("Payload: "); Serial.println(fbBlueLEDData.payload());
+      }
+    }
+  }
+ 
+  // white LED control
+  if (Firebase.RTDB.readStream(&fbWhiteLEDData)) { // check stream for white LED
+    if (fbWhiteLEDData.streamAvailable()) {
+      Serial.println("--- White LED Stream Event ---"); 
+      Serial.print("Path: "); Serial.println(fbWhiteLEDData.dataPath());
+      Serial.print("Type: "); Serial.println(fbWhiteLEDData.eventType());
+
+      // expecting a boolean value from the mobile app for the LED state
+      if (fbWhiteLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
+        bool whiteLEDIsOn = fbWhiteLEDData.boolData();  // read value as boolean
+        Serial.print("Received White LED state (boolean): ");
+        Serial.println(whiteLEDIsOn ? "true (ON)" : "false (OFF)");
+
+        // white LED toggle
+        if (whiteLEDIsOn) {
+          digitalWrite(whiteLEDPin, HIGH); 
+          Serial.println("White LED Turned ON");
+        } else {
+          digitalWrite(whiteLEDPin, LOW);  
+          Serial.println("White LED Turned OFF");
+        }
+      }
+      // fallback for string data for white LED
+      else if (fbWhiteLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
+        String whiteLEDStateStr = fbWhiteLEDData.stringData();
+        Serial.print("Received White LED state (string - manual test?): ");
+        Serial.println(whiteLEDStateStr);
+        if (whiteLEDStateStr.equalsIgnoreCase("true") || whiteLEDStateStr.equalsIgnoreCase("on")) {
+          digitalWrite(whiteLEDPin, HIGH); 
+          Serial.println("White LED Turned ON (from string)");
+        } else if (whiteLEDStateStr.equalsIgnoreCase("false") || whiteLEDStateStr.equalsIgnoreCase("off")) {
+          digitalWrite(whiteLEDPin, LOW);  
+          Serial.println("White LED Turned OFF (from string)");
+        } else {
+          Serial.print("Unknown string value for White LED state: "); Serial.println(whiteLEDStateStr);
+        }
+      } else {
+        Serial.print("Unexpected data type for White LED state: ");
+        Serial.println(fbWhiteLEDData.dataType());
+        Serial.print("Payload: "); Serial.println(fbWhiteLEDData.payload());
       }
     }
   }
 
+  // implement non-blocking for the LED toggle
   unsigned long currentMillis = millis();
   if (currentMillis - lastSensorRead >= SENSOR_INTERVAL) {
     lastSensorRead = currentMillis;
@@ -260,38 +332,46 @@ void loop() {
     Serial.println("-------------------------------------");
     Serial.println("Reading sensors and sending to Firebase...");
 
-    // Clear OLED and set cursor
+    // clear OLED and set cursor
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
 
-    // Read DHT11 sensor
+    // read temperature and humidity from the DHT11 module
     float humidity = dht.readHumidity();
     float temperature = dht.readTemperature();
+
+    // read LDR values
+    int ldrValue = analogRead(ldrPin);
+
     if (isnan(humidity) || isnan(temperature)) {
       Serial.println("Failed to read from DHT sensor!");
       display.print("DHT11 module error");
     } else {
 
-      // Prepare payload strings
+      // prepare payload strings
       String tempPayload = "Temp:" + String(temperature, 1) + "°C";
       String humidityPayload = "Humidity:" + String(humidity, 1) + "%";
+      String ldrPayload = "LDR:" + String(ldrValue) + "Ω";
 
-      // Encrypt
+      // encrypt the sensor data
       String tempEncrypted = encryptSensorData(tempPayload);
       String humidityEncrypted = encryptSensorData(humidityPayload);
-
-      // Hash
+      String ldrEncrypted = encryptSensorData(ldrPayload);
+      
+      // compute the hash for the sensor data
       String tempHash = hashSensorData(tempPayload);
       String humidityHash = hashSensorData(humidityPayload);
+      String ldrHash = hashSensorData(ldrPayload);
 
-      // Log to Firebase with proper history
+      // log to Firebase 
       sendSensorToFirebase("temperature", tempEncrypted, tempHash);
       sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
+      sendSensorToFirebase("ldr", ldrEncrypted, ldrHash);
 
-      // Display on OLED
-      String combinedPayload = tempPayload + ", " + humidityPayload;
+      // display on OLED
+      String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload;
       display.println("Plaintext:");
       display.println(combinedPayload);
       display.println("Ciphertext (Temp):");
@@ -299,17 +379,14 @@ void loop() {
       display.println("Ciphertext (Hum):");
       display.println(humidityEncrypted);
 
-      // Serial output
-      Serial.print("Payload: ");
-      Serial.println(combinedPayload);
-      Serial.print("Encrypted Temp: ");
-      Serial.println(tempEncrypted);
-      Serial.print("SHA-256 Temp: ");
-      Serial.println(tempHash);
-      Serial.print("Encrypted Hum: ");
-      Serial.println(humidityEncrypted);
-      Serial.print("SHA-256 Hum: ");
-      Serial.println(humidityHash);
+      // serial output
+      Serial.print("Payload: "); Serial.println(combinedPayload);
+      Serial.print("Encrypted Temp: "); Serial.println(tempEncrypted);
+      Serial.print("SHA-256 Temp: "); Serial.println(tempHash);
+      Serial.print("Encrypted Hum: "); Serial.println(humidityEncrypted);
+      Serial.print("SHA-256 Hum: "); Serial.println(humidityHash);
+      Serial.print("Encrypted LDR: "); Serial.println(ldrEncrypted);
+      Serial.print("SHA-256 LDR: "); Serial.println(ldrHash);
     }
     display.display();
     Serial.println("Sensor data processing and Firebase send complete.");
