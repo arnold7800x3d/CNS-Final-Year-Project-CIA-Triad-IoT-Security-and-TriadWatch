@@ -15,7 +15,7 @@ android {
     defaultConfig {
         applicationId = "com.cnsprojectii.triadwatch"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 30
         versionCode = 1
         versionName = "1.0"
 
@@ -85,4 +85,8 @@ dependencies {
     implementation("com.google.firebase:firebase-database")
 
     implementation("androidx.compose.material:material-icons-extended-android:1.6.8")
+
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+    implementation("org.eclipse.paho:org.eclipse.paho.android.service:1.1.1")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 }

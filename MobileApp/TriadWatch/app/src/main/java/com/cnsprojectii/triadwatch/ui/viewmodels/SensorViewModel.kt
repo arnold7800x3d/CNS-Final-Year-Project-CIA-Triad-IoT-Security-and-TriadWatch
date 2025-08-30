@@ -1,159 +1,302 @@
 package com.cnsprojectii.triadwatch.ui.viewmodels
 
+import android.app.Application
 import android.util.Log
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.ViewModel
-import com.cnsprojectii.triadwatch.data.model.SensorTypeData
-import com.cnsprojectii.triadwatch.ui.state.TempHumidityUiState
+import androidx.lifecycle.AndroidViewModel
+import com.cnsprojectii.triadwatch.R // Import your app's R class
+import com.cnsprojectii.triadwatch.ui.state.SensorReadingsUiState // Already updated, good!
 import com.cnsprojectii.triadwatch.utils.CryptoUtils
+import org.eclipse.paho.android.service.MqttAndroidClient
+import org.eclipse.paho.client.mqttv3.*
+import org.json.JSONObject
 import javax.crypto.SecretKey
-import kotlin.text.substringAfter
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-class SensorViewModel : ViewModel() {
-    private val database =
-        com.google.firebase.database.FirebaseDatabase.getInstance() // Get instance
+// MQTT Configuration
+private const val MQTT_BROKER_URL = "ssl://192.168.1.8:8883"
+private const val MQTT_CLIENT_ID_PREFIX = "TriadWatchAppClient"
+private const val MQTT_USERNAME = "arnold"
+private const val MQTT_PASSWORD = "7945"
 
-    // Make sure this path matches your Firebase structure EXACTLY
-    private val sensorsRef = database.getReference("bank_monitoring/sensors")
+private const val TOPIC_TEMPERATURE = "secure_monitoring/temperature"
+private const val TOPIC_HUMIDITY = "secure_monitoring/humidity"
+private const val TOPIC_LDR = "secure_monitoring/ldr" // New LDR topic
+private const val TOPIC_DISTANCE = "secure_monitoring/distance" // New Distance topic
 
-    private val _tempHumidityState = mutableStateOf(TempHumidityUiState())
-    val tempHumidityState: State<TempHumidityUiState> = _tempHumidityState
+class SensorViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _sensorReadingsState = mutableStateOf(SensorReadingsUiState()) // Renamed
+    val sensorReadingsState: State<SensorReadingsUiState> = _sensorReadingsState // Renamed
 
     private val decryptionKey: SecretKey by lazy { CryptoUtils.getDecryptionKey() }
 
-    private val temperatureListener: com.google.firebase.database.ValueEventListener
-    private val humidityListener: com.google.firebase.database.ValueEventListener
+    private var mqttClient: MqttAndroidClient? = null
 
     init {
-        Log.d("SensorViewModel", "Initializing and attaching listeners.")
-
-        temperatureListener = createSensorValueListener(isTemperature = true)
-        humidityListener = createSensorValueListener(isTemperature = false)
-
-        sensorsRef.child("temperature").addValueEventListener(temperatureListener)
-        sensorsRef.child("humidity").addValueEventListener(humidityListener)
+        Log.d("SensorViewModel_MQTT", "Initializing and attempting to connect MQTT.")
+        connectMqtt()
     }
 
-    private fun createSensorValueListener(isTemperature: Boolean): com.google.firebase.database.ValueEventListener {
-        return object : com.google.firebase.database.ValueEventListener {
-            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                Log.d(
-                    "SensorViewModel",
-                    "Data changed for ${if (isTemperature) "temperature" else "humidity"}: ${snapshot.value}"
-                )
-                val sensorData = snapshot.getValue(SensorTypeData::class.java)
-                processSensorValue(sensorData, isTemperature, decryptionKey)
+    private fun connectMqtt() {
+        val appContext = getApplication<Application>().applicationContext
+        val clientId = MqttClient.generateClientId()
+        mqttClient = MqttAndroidClient(appContext, MQTT_BROKER_URL, "${MQTT_CLIENT_ID_PREFIX}_${clientId}")
+
+        mqttClient?.setCallback(object : MqttCallbackExtended {
+            override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    Log.i("SensorViewModel_MQTT", "MQTT Connection Complete. Reconnect: $reconnect. URI: $serverURI")
+                    _sensorReadingsState.value = _sensorReadingsState.value.copy(statusMessage = null)
+                    subscribeToTopics()
+                }
             }
 
-            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                Log.e(
-                    "SensorViewModel",
-                    "Firebase listener cancelled for ${if (isTemperature) "temperature" else "humidity"}",
-                    error.toException()
-                )
-                val currentStatus = _tempHumidityState.value.statusMessage
-                val newError =
-                    "Failed to load ${if (isTemperature) "temperature" else "humidity"}: ${error.message}"
-                _tempHumidityState.value = _tempHumidityState.value.copy(
-                    statusMessage = if (currentStatus != null) "$currentStatus\n$newError" else newError,
-                    temperature = if (isTemperature && _tempHumidityState.value.temperature == "Loading...") "Error" else _tempHumidityState.value.temperature,
-                    humidity = if (!isTemperature && _tempHumidityState.value.humidity == "Loading...") "Error" else _tempHumidityState.value.humidity
+            override fun connectionLost(cause: Throwable?) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    Log.w("SensorViewModel_MQTT", "MQTT Connection Lost.", cause)
+                    val currentState = _sensorReadingsState.value
+                    _sensorReadingsState.value = currentState.copy(
+                        statusMessage = "MQTT Connection Lost: ${cause?.message}",
+                        temperature = if (currentState.temperature.contains("Loading")) "N/A" else currentState.temperature,
+                        humidity = if (currentState.humidity.contains("Loading")) "N/A" else currentState.humidity,
+                        ldrResistance = if (currentState.ldrResistance.contains("Loading")) "N/A" else currentState.ldrResistance, // Updated
+                        distance = if (currentState.distance.contains("Loading")) "N/A" else currentState.distance // Updated
+                    )
+                }
+            }
+
+            override fun messageArrived(topic: String?, message: MqttMessage?) {
+                if (topic == null || message == null) {
+                    Log.w("SensorViewModel_MQTT", "Null topic or message received.")
+                    return
+                }
+                val payloadString = String(message.payload)
+                Log.d("SensorViewModel_MQTT", "Message arrived on topic '$topic': $payloadString")
+
+                viewModelScope.launch(Dispatchers.Main) {
+                    try {
+                        val jsonPayload = JSONObject(payloadString)
+                        val encryptedBase64Data = jsonPayload.optString("cipher")
+                        val expectedHashHex = jsonPayload.optString("hash")
+
+                        if (encryptedBase64Data.isEmpty() || expectedHashHex.isEmpty()) {
+                            Log.e("SensorViewModel_MQTT", "MQTT JSON payload missing 'cipher' or 'hash'. Payload: $payloadString")
+                            updateStateWithError(topic, "Malformed Payload")
+                            return@launch
+                        }
+                        processSensorMessage(topic, encryptedBase64Data, expectedHashHex)
+                    } catch (e: Exception) {
+                        Log.e("SensorViewModel_MQTT", "Failed to parse MQTT JSON payload: $payloadString", e)
+                        updateStateWithError(topic, "Payload Parse Error")
+                    }
+                }
+            }
+
+            override fun deliveryComplete(token: IMqttDeliveryToken?) {
+                // Not used for subscribers
+            }
+        })
+
+        val options = MqttConnectOptions().apply {
+            userName = MQTT_USERNAME
+            password = MQTT_PASSWORD.toCharArray()
+            isAutomaticReconnect = true
+            isCleanSession = true
+            try {
+                val cf = java.security.cert.CertificateFactory.getInstance("X.509")
+                val caInput: java.io.InputStream = appContext.resources.openRawResource(R.raw.cacert)
+                val ca: java.security.cert.X509Certificate = caInput.use {
+                    cf.generateCertificate(it) as java.security.cert.X509Certificate
+                }
+                val keyStoreType = java.security.KeyStore.getDefaultType()
+                val keyStore = java.security.KeyStore.getInstance(keyStoreType)
+                keyStore.load(null, null)
+                keyStore.setCertificateEntry("ca", ca)
+                val tmfAlgorithm = javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()
+                val tmf = javax.net.ssl.TrustManagerFactory.getInstance(tmfAlgorithm)
+                tmf.init(keyStore)
+                val sslContext = javax.net.ssl.SSLContext.getInstance("TLSv1.2")
+                sslContext.init(null, tmf.trustManagers, null)
+                this.socketFactory = sslContext.socketFactory
+                Log.i("SensorViewModel_MQTT", "SSLSocketFactory configured successfully with CA cert from res/raw.")
+            } catch (e: Exception) {
+                Log.e("SensorViewModel_MQTT", "Error setting up SSLSocketFactory for MQTT from res/raw", e)
+                viewModelScope.launch(Dispatchers.Main) {
+                    _sensorReadingsState.value = _sensorReadingsState.value.copy(statusMessage = "MQTT SSL Setup Error (Raw CA)")
+                }
+            }
+        }
+
+        try {
+            Log.i("SensorViewModel_MQTT", "Attempting to connect MQTT client...")
+            mqttClient?.connect(options, null, object : IMqttActionListener {
+                override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    Log.i("SensorViewModel_MQTT", "MQTT Connection initiated successfully.")
+                }
+
+                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                    viewModelScope.launch(Dispatchers.Main) {
+                        Log.e("SensorViewModel_MQTT", "MQTT Connection initiation failed.", exception)
+                        _sensorReadingsState.value = _sensorReadingsState.value.copy(
+                            statusMessage = "MQTT Connection Failed: ${exception?.message}",
+                            temperature = "N/A",
+                            humidity = "N/A",
+                            ldrResistance = "N/A", // Updated
+                            distance = "N/A" // Updated
+                        )
+                    }
+                }
+            })
+        } catch (e: MqttException) {
+            viewModelScope.launch(Dispatchers.Main) {
+                Log.e("SensorViewModel_MQTT", "MQTT MqttException during connect.", e)
+                _sensorReadingsState.value = _sensorReadingsState.value.copy(
+                    statusMessage = "MQTT Error: ${e.message}",
+                    temperature = "N/A",
+                    humidity = "N/A",
+                    ldrResistance = "N/A", // Updated
+                    distance = "N/A" // Updated
                 )
             }
         }
     }
 
-    private fun processSensorValue(
-        sensorData: SensorTypeData?,
-        isTemperature: Boolean,
-        key: SecretKey
-    ) {
-        if (sensorData?.latest != null && sensorData.hash != null) {
-            Log.i(
-                "SensorViewModel",
-                "Processing ${if (isTemperature) "Temp" else "Hum"}: Encrypted='${sensorData.latest}', Hash='${sensorData.hash}'"
-            )
-            val decryptedValue = CryptoUtils.decrypt(sensorData.latest, key)
+    private fun subscribeToTopics() {
+        try {
+            mqttClient?.subscribe(TOPIC_TEMPERATURE, 1)
+            mqttClient?.subscribe(TOPIC_HUMIDITY, 1)
+            mqttClient?.subscribe(TOPIC_LDR, 1) // Subscribe to LDR
+            mqttClient?.subscribe(TOPIC_DISTANCE, 1) // Subscribe to Distance
+            Log.i("SensorViewModel_MQTT", "Subscribed to MQTT topics: $TOPIC_TEMPERATURE, $TOPIC_HUMIDITY, $TOPIC_LDR, $TOPIC_DISTANCE")
+        } catch (e: MqttException) {
+            Log.e("SensorViewModel_MQTT", "MQTT Subscription failed.", e)
+            _sensorReadingsState.value = _sensorReadingsState.value.copy(statusMessage = "MQTT Subscribe Error: ${e.message}")
+        }
+    }
 
-            if (decryptedValue != null) {
-                Log.i(
-                    "SensorViewModel",
-                    "Decrypted ${if (isTemperature) "Temp" else "Hum"}: '$decryptedValue'"
-                )
-                val isVerified = CryptoUtils.verifyHash(decryptedValue, sensorData.hash)
-                Log.i(
-                    "SensorViewModel",
-                    "Verification for ${if (isTemperature) "Temp" else "Hum"}: $isVerified"
-                )
+    private fun processSensorMessage(topic: String, encryptedData: String, expectedHash: String) {
+        val decryptedValue = CryptoUtils.decrypt(encryptedData, decryptionKey)
+        val currentTimestamp = System.currentTimeMillis() / 1000
 
-                val displayValue = if (isVerified) {
-                    // Attempt to extract value, assuming format "Type:ValueUnit"
-                    // e.g., "Temp:25.5°C" or "Humidity:60.0%"
-                    if (isTemperature) {
-                        decryptedValue.substringAfter("Temp:").trim().ifEmpty { decryptedValue }
-                    } else {
-                        decryptedValue.substringAfter("Humidity:").trim().ifEmpty { decryptedValue }
-                    }
-                } else {
-                    "Verify Failed"
+        if (decryptedValue != null) {
+            Log.i("SensorViewModel_MQTT", "Decrypted for topic '$topic': '$decryptedValue'")
+            val isVerified = CryptoUtils.verifyHash(decryptedValue, expectedHash)
+            Log.i("SensorViewModel_MQTT", "Verification for topic '$topic': $isVerified")
+
+            val displayValue = if (isVerified) {
+                // For LDR and Distance, no prefix is expected.
+                // For Temp and Humidity, original prefix logic is kept.
+                val prefix = when (topic) {
+                    TOPIC_TEMPERATURE -> "Temp:"
+                    TOPIC_HUMIDITY -> "Humidity:"
+                    TOPIC_LDR -> "LDR:"           // Placeholder for your LDR prefix
+                    TOPIC_DISTANCE -> "Distance:"
+                    else -> "" // No prefix for LDR and Distance
                 }
-
-                if (isTemperature) {
-                    _tempHumidityState.value = _tempHumidityState.value.copy(
-                        temperature = displayValue,
-                        isTemperatureVerified = isVerified,
-                        lastUpdateTimestamp = sensorData.timestamp
-                            ?: _tempHumidityState.value.lastUpdateTimestamp,
-                        statusMessage = if (!isVerified && displayValue == "Verify Failed") "Temp data integrity fail." else _tempHumidityState.value.statusMessage?.replace(
-                            "Temp data integrity fail.",
-                            ""
-                        )?.trim()
-                    )
-                } else {
-                    _tempHumidityState.value = _tempHumidityState.value.copy(
-                        humidity = displayValue,
-                        isHumidityVerified = isVerified,
-                        lastUpdateTimestamp = sensorData.timestamp
-                            ?: _tempHumidityState.value.lastUpdateTimestamp,
-                        statusMessage = if (!isVerified && displayValue == "Verify Failed") "Hum data integrity fail." else _tempHumidityState.value.statusMessage?.replace(
-                            "Hum data integrity fail.",
-                            ""
-                        )?.trim()
-                    )
-                }
+                decryptedValue.substringAfter(prefix, "").trim().ifEmpty { decryptedValue }
             } else {
-                Log.w(
-                    "SensorViewModel",
-                    "Decryption failed for ${if (isTemperature) "Temp" else "Hum"}"
-                )
-                if (isTemperature) {
-                    _tempHumidityState.value = _tempHumidityState.value.copy(
-                        temperature = "Decrypt Error",
-                        isTemperatureVerified = false
-                    )
-                } else {
-                    _tempHumidityState.value = _tempHumidityState.value.copy(
-                        humidity = "Decrypt Error",
-                        isHumidityVerified = false
-                    )
-                }
+                "Verify Failed"
             }
+            updateStateWithValue(topic, displayValue, isVerified, currentTimestamp)
         } else {
-            Log.w(
-                "SensorViewModel",
-                "${if (isTemperature) "Temp" else "Hum"} data is missing 'latest' or 'hash', or is null. Data: $sensorData"
-            )
-            val placeholder = if (isTemperature) "Temp N/A" else "Hum N/A"
-            if (isTemperature) {
-                _tempHumidityState.value = _tempHumidityState.value.copy(
-                    temperature = placeholder,
+            Log.w("SensorViewModel_MQTT", "Decryption failed for topic '$topic'")
+            updateStateWithError(topic, "Decrypt Error")
+        }
+    }
+
+    private fun updateStateWithValue(topic: String, value: String, isVerified: Boolean, timestamp: Long) {
+        val current = _sensorReadingsState.value
+        var newStatus = current.statusMessage
+        val integrityFailMsgTemp = "Temp data integrity fail."
+        val integrityFailMsgHum = "Hum data integrity fail."
+        val integrityFailMsgLdr = "LDR data integrity fail." // New
+        val integrityFailMsgDist = "Dist data integrity fail." // New
+
+        when (topic) {
+            TOPIC_TEMPERATURE -> {
+                newStatus = if (!isVerified && value == "Verify Failed") {
+                    if (newStatus?.contains(integrityFailMsgTemp) == false) "${newStatus ?: ""} $integrityFailMsgTemp".trim() else integrityFailMsgTemp
+                } else {
+                    newStatus?.replace(integrityFailMsgTemp, "")?.trim()?.ifEmpty { null }
+                }
+                _sensorReadingsState.value = current.copy(
+                    temperature = value,
+                    isTemperatureVerified = isVerified,
+                    lastUpdateTimestamp = timestamp,
+                    statusMessage = newStatus
+                )
+            }
+            TOPIC_HUMIDITY -> {
+                newStatus = if (!isVerified && value == "Verify Failed") {
+                    if (newStatus?.contains(integrityFailMsgHum) == false) "${newStatus ?: ""} $integrityFailMsgHum".trim() else integrityFailMsgHum
+                } else {
+                    newStatus?.replace(integrityFailMsgHum, "")?.trim()?.ifEmpty { null }
+                }
+                _sensorReadingsState.value = current.copy(
+                    humidity = value,
+                    isHumidityVerified = isVerified,
+                    lastUpdateTimestamp = timestamp,
+                    statusMessage = newStatus
+                )
+            }
+            TOPIC_LDR -> { // New case for LDR
+                newStatus = if (!isVerified && value == "Verify Failed") {
+                    if (newStatus?.contains(integrityFailMsgLdr) == false) "${newStatus ?: ""} $integrityFailMsgLdr".trim() else integrityFailMsgLdr
+                } else {
+                    newStatus?.replace(integrityFailMsgLdr, "")?.trim()?.ifEmpty { null }
+                }
+                _sensorReadingsState.value = current.copy(
+                    ldrResistance = value,
+                    isLdrResistanceVerified = isVerified,
+                    lastUpdateTimestamp = timestamp,
+                    statusMessage = newStatus
+                )
+            }
+            TOPIC_DISTANCE -> { // New case for Distance
+                newStatus = if (!isVerified && value == "Verify Failed") {
+                    if (newStatus?.contains(integrityFailMsgDist) == false) "${newStatus ?: ""} $integrityFailMsgDist".trim() else integrityFailMsgDist
+                } else {
+                    newStatus?.replace(integrityFailMsgDist, "")?.trim()?.ifEmpty { null }
+                }
+                _sensorReadingsState.value = current.copy(
+                    distance = value,
+                    isDistanceVerified = isVerified,
+                    lastUpdateTimestamp = timestamp,
+                    statusMessage = newStatus
+                )
+            }
+        }
+    }
+
+    private fun updateStateWithError(topic: String, errorType: String) {
+        val current = _sensorReadingsState.value
+        when (topic) {
+            TOPIC_TEMPERATURE -> {
+                _sensorReadingsState.value = current.copy(
+                    temperature = errorType,
                     isTemperatureVerified = false
                 )
-            } else {
-                _tempHumidityState.value = _tempHumidityState.value.copy(
-                    humidity = placeholder,
+            }
+            TOPIC_HUMIDITY -> {
+                _sensorReadingsState.value = current.copy(
+                    humidity = errorType,
                     isHumidityVerified = false
+                )
+            }
+            TOPIC_LDR -> { // New case for LDR
+                _sensorReadingsState.value = current.copy(
+                    ldrResistance = errorType,
+                    isLdrResistanceVerified = false
+                )
+            }
+            TOPIC_DISTANCE -> { // New case for Distance
+                _sensorReadingsState.value = current.copy(
+                    distance = errorType,
+                    isDistanceVerified = false
                 )
             }
         }
@@ -161,8 +304,16 @@ class SensorViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
-        Log.d("SensorViewModel", "ViewModel cleared. Removing Firebase listeners.")
-        sensorsRef.child("temperature").removeEventListener(temperatureListener)
-        sensorsRef.child("humidity").removeEventListener(humidityListener)
+        Log.d("SensorViewModel_MQTT", "ViewModel cleared. Disconnecting MQTT client.")
+        try {
+            // Unsubscribe from all topics
+            mqttClient?.unsubscribe(arrayOf(TOPIC_TEMPERATURE, TOPIC_HUMIDITY, TOPIC_LDR, TOPIC_DISTANCE))
+            mqttClient?.disconnect()
+            mqttClient?.close()
+            Log.i("SensorViewModel_MQTT", "MQTT client disconnected and closed.")
+        } catch (e: MqttException) {
+            Log.e("SensorViewModel_MQTT", "Error during MQTT disconnect/close", e)
+        }
+        mqttClient = null
     }
 }

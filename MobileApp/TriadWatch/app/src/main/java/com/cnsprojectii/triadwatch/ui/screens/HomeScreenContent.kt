@@ -27,7 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cnsprojectii.triadwatch.ui.components.LEDDisplayContent
-import com.cnsprojectii.triadwatch.ui.state.TempHumidityUiState
+import com.cnsprojectii.triadwatch.ui.state.SensorReadingsUiState
 import com.cnsprojectii.triadwatch.ui.viewmodels.SensorViewModel
 import com.cnsprojectii.triadwatch.utils.formatTimestampForDisplay
 import com.cnsprojectii.triadwatch.viewmodels.LEDControlViewModel
@@ -36,17 +36,16 @@ import com.cnsprojectii.triadwatch.viewmodels.LEDType
 @Composable
 fun HomeScreenContent(userEmail: String?) {
     val sensorViewModel: SensorViewModel = viewModel()
-    // Corrected: If tempHumidityState is State<T>, no .collectAsState() needed
-    val tempHumidityState by sensorViewModel.tempHumidityState
+    // Use the renamed state variable from SensorViewModel
+    val sensorReadingsState by sensorViewModel.sensorReadingsState // UPDATED HERE
 
     val ledControlViewModel: LEDControlViewModel = viewModel()
-    // Correct: uiState is StateFlow<T>, so .collectAsState() is needed
     val allLEDsUiState by ledControlViewModel.uiState.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 64.dp), // Adjust as needed, consider Scaffold for proper padding
+            .padding(top = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
@@ -58,9 +57,10 @@ fun HomeScreenContent(userEmail: String?) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-        if (tempHumidityState.lastUpdateTimestamp > 0) {
+        // Use the renamed state variable
+        if (sensorReadingsState.lastUpdateTimestamp > 0) { // UPDATED HERE
             Text(
-                text = "Last Sensor Update: ${formatTimestampForDisplay(tempHumidityState.lastUpdateTimestamp)}",
+                text = "Last Sensor Update: ${formatTimestampForDisplay(sensorReadingsState.lastUpdateTimestamp)}", // UPDATED HERE
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
@@ -74,7 +74,7 @@ fun HomeScreenContent(userEmail: String?) {
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Box( // Decorative bar
+        Box(
             modifier = Modifier
                 .fillMaxWidth(0.2f)
                 .height(20.dp)
@@ -83,45 +83,43 @@ fun HomeScreenContent(userEmail: String?) {
         )
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Grid for sensor boxes
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // First row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 LargeRoundedBox(modifier = Modifier.weight(1f)) {
-                    TemperatureHumidityContent(uiState = tempHumidityState)
+                    // Pass the renamed state variable
+                    TemperatureHumidityContent(uiState = sensorReadingsState) // UPDATED HERE
                 }
                 LargeRoundedBox(modifier = Modifier.weight(1f)) {
-                    DistanceContent()
+                    // Pass the renamed state variable
+                    DistanceContent(uiState = sensorReadingsState) // UPDATED HERE
                 }
             }
 
-            // Second row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 LargeRoundedBox(modifier = Modifier.weight(1f)) {
-                    ResistanceContent()
+                    // Pass the renamed state variable
+                    ResistanceContent(uiState = sensorReadingsState) // UPDATED HERE
                 }
                 LargeRoundedBox(modifier = Modifier.weight(1f)) {
                     MotionContent()
                 }
             }
 
-            // --- Third row: THIS IS WHERE THE TWO DISTINCT LED BOXES ARE CREATED ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // --- Box 1: Blue LED ---
                 val blueLEDState = allLEDsUiState.blueLEDState
                 LargeRoundedBox(
                     modifier = Modifier.weight(1f),
@@ -135,7 +133,6 @@ fun HomeScreenContent(userEmail: String?) {
                         }
                     }
                 ) {
-                    // Content inside the Blue LED's LargeRoundedBox
                     if (blueLEDState.error != null && !blueLEDState.isLoading) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -157,14 +154,13 @@ fun HomeScreenContent(userEmail: String?) {
                             )
                         }
                     } else {
-                        LEDDisplayContent( // Using the generic display content
+                        LEDDisplayContent(
                             ledName = "Blue LED",
                             ledUiState = blueLEDState
                         )
                     }
                 }
 
-                // --- Box 2: White LED ---
                 val whiteLEDState = allLEDsUiState.whiteLEDState
                 LargeRoundedBox(
                     modifier = Modifier.weight(1f),
@@ -178,7 +174,6 @@ fun HomeScreenContent(userEmail: String?) {
                         }
                     }
                 ) {
-                    // Content inside the White LED's LargeRoundedBox
                     if (whiteLEDState.error != null && !whiteLEDState.isLoading) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -200,7 +195,7 @@ fun HomeScreenContent(userEmail: String?) {
                             )
                         }
                     } else {
-                        LEDDisplayContent( // Using the generic display content
+                        LEDDisplayContent(
                             ledName = "White LED",
                             ledUiState = whiteLEDState
                         )
@@ -211,17 +206,28 @@ fun HomeScreenContent(userEmail: String?) {
 
         Spacer(modifier = Modifier.height(25.dp))
 
+        // Use the renamed state variable and include checks for new sensor values
         val integrityMessage = when {
-            tempHumidityState.statusMessage != null -> tempHumidityState.statusMessage
-            tempHumidityState.isTemperatureVerified && tempHumidityState.isHumidityVerified -> "Sensor Data Integrity: Verified"
-            tempHumidityState.temperature == "Loading..." || tempHumidityState.humidity == "Loading..." -> "Sensor Data Integrity: Checking..."
+            sensorReadingsState.statusMessage != null -> sensorReadingsState.statusMessage
+            sensorReadingsState.isTemperatureVerified &&
+                    sensorReadingsState.isHumidityVerified &&
+                    sensorReadingsState.isLdrResistanceVerified && // ADDED CHECK
+                    sensorReadingsState.isDistanceVerified -> "Sensor Data Integrity: Verified" // ADDED CHECK
+            sensorReadingsState.temperature == "Loading..." ||
+                    sensorReadingsState.humidity == "Loading..." ||
+                    sensorReadingsState.ldrResistance == "Loading..." || // ADDED CHECK
+                    sensorReadingsState.distance == "Loading..." -> "Sensor Data Integrity: Checking..." // ADDED CHECK
             else -> "Sensor Data Integrity: Issues Detected"
         }
         Text(
             text = integrityMessage ?: "Sensor Data Integrity: Status Unavailable",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
-            color = if (tempHumidityState.isTemperatureVerified && tempHumidityState.isHumidityVerified && tempHumidityState.statusMessage == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            color = if (sensorReadingsState.isTemperatureVerified &&
+                sensorReadingsState.isHumidityVerified &&
+                sensorReadingsState.isLdrResistanceVerified && // ADDED CHECK
+                sensorReadingsState.isDistanceVerified && // ADDED CHECK
+                sensorReadingsState.statusMessage == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
         )
     }
 }
@@ -230,28 +236,27 @@ fun HomeScreenContent(userEmail: String?) {
 @Composable
 fun LargeRoundedBox(
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null, // Optional click handler
+    onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier
-            //.aspectRatio(1.5f) // square
             .height(150.dp)
             .width(120.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.DarkGray.copy(alpha = 0.3f)) // transparent dark gray color
+            .background(Color.DarkGray.copy(alpha = 0.3f))
             .then(
                 if (onClick != null) Modifier.clickable { onClick() } else Modifier
             )
-            .padding(16.dp), // padding for content in the box
-        contentAlignment = Alignment.Center // Center content
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
     ) {
         content()
     }
 }
 
 @Composable
-fun TemperatureHumidityContent(uiState: TempHumidityUiState) {
+fun TemperatureHumidityContent(uiState: SensorReadingsUiState) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -265,9 +270,9 @@ fun TemperatureHumidityContent(uiState: TempHumidityUiState) {
                 !uiState.temperature.contains("Failed", ignoreCase = true) &&
                 !uiState.temperature.contains("N/A")
             )
-                Color.Red // Or MaterialTheme.colorScheme.primary
+                Color.Red
             else
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) // Muted color
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )
         if (uiState.temperature == "Verify Failed" || uiState.temperature == "Decrypt Error") {
             Text(
@@ -288,7 +293,7 @@ fun TemperatureHumidityContent(uiState: TempHumidityUiState) {
                 !uiState.humidity.contains("Failed", ignoreCase = true) &&
                 !uiState.humidity.contains("N/A")
             )
-                Color.Blue // Or MaterialTheme.colorScheme.secondary
+                Color.Blue
             else
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )
@@ -300,13 +305,10 @@ fun TemperatureHumidityContent(uiState: TempHumidityUiState) {
             )
         }
 
-        // Display overall status message if any, specific to this sensor box
         uiState.statusMessage?.let {
-            if (it.contains("Temp", ignoreCase = true) || it.contains(
-                    "Hum",
-                    ignoreCase = true
-                )
-            ) { // Filter for relevant messages
+            if (it.contains("Temp", ignoreCase = true) || it.contains("Hum", ignoreCase = true) ||
+                it.contains("LDR", ignoreCase = true) || it.contains("Dist", ignoreCase = true) // Check for new integrity messages
+            ) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = it,
@@ -320,18 +322,54 @@ fun TemperatureHumidityContent(uiState: TempHumidityUiState) {
 }
 
 @Composable
-fun DistanceContent() {
+fun DistanceContent(uiState: SensorReadingsUiState) { // UPDATED to accept uiState
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Distance", style = MaterialTheme.typography.titleMedium)
-        Text("0.0 cm", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = uiState.distance, // UPDATED
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (uiState.isDistanceVerified &&
+                !uiState.distance.contains("Error", ignoreCase = true) &&
+                !uiState.distance.contains("Failed", ignoreCase = true) &&
+                !uiState.distance.contains("N/A")
+            )
+                Color.Black // Example color
+            else
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
+        if (uiState.distance == "Verify Failed" || uiState.distance == "Decrypt Error") {
+            Text(
+                uiState.distance,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 
 @Composable
-fun ResistanceContent() {
+fun ResistanceContent(uiState: SensorReadingsUiState) { // UPDATED to accept uiState
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Resistance", style = MaterialTheme.typography.titleMedium)
-        Text("0 Ohms", style = MaterialTheme.typography.bodyLarge, color = Color.Cyan)
+        Text("Resistance", style = MaterialTheme.typography.titleMedium) // Changed "Resistance" to "LDR" for consistency with topic
+        Text(
+            text = uiState.ldrResistance, // UPDATED
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (uiState.isLdrResistanceVerified &&
+                !uiState.ldrResistance.contains("Error", ignoreCase = true) &&
+                !uiState.ldrResistance.contains("Failed", ignoreCase = true) &&
+                !uiState.ldrResistance.contains("N/A")
+            )
+                Color.Cyan
+            else
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
+        if (uiState.ldrResistance == "Verify Failed" || uiState.ldrResistance == "Decrypt Error") {
+            Text(
+                uiState.ldrResistance,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 
@@ -343,15 +381,14 @@ fun MotionContent() {
     }
 }
 
+// ESPLedContent and ArduinoLedContent remain unchanged for now
 @Composable
 fun ESPLedContent(
     modifier: Modifier = Modifier,
-    currentLEDIsOn: Boolean = false, // OFF,
+    currentLEDIsOn: Boolean = false,
     isLoading: Boolean,
     onLEDStateChange: (Boolean) -> Unit
 ) {
-    // val currentLEDIsOn = initialLEDState
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

@@ -1,6 +1,6 @@
 package com.cnsprojectii.triadwatch.ui.state
 
-data class TempHumidityUiState(
+data class TempHumidityUiStates(
     val temperature: String = "Loading...",
     val humidity: String = "Loading...",
     val isTemperatureVerified: Boolean = false,

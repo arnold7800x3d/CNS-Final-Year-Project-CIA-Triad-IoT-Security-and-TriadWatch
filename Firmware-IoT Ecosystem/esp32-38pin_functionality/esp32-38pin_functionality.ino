@@ -18,12 +18,16 @@
 #include <mbedtls/aes.h>       // AES-256 encryption library
 #include "mbedtls/sha256.h"    // SHA-256 encryption
 #include "arduino_base64.hpp"  // base64 encoding library
-#include "secrets.h" // file containing WiFi credentials
+#include "secrets.h"           // file containing WiFi credentials
 
 // WiFi transmission and Firebase
 #include <WiFi.h>
 #include "time.h"
 #include <Firebase_ESP_Client.h>
+
+// TLS security
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
 
 // variables
 #define DHTPIN 0  // pin for the DHT module
@@ -36,11 +40,44 @@
 #define SCREEN_ADDRESS 0x3C
 
 // LED command paths
-#define BLUE_LED_DB_PATH "/triadwatch/commands/blueLED" 
+#define BLUE_LED_DB_PATH "/triadwatch/commands/blueLED"
 #define WHITE_LED_DB_PATH "triadwatch/commands/whiteLED"
 
+// mqtt server settings
+const char* mqttServer = SECRET_MQTT_SERVER;
+const int mqttPort = 8883;
+const char* mqttUser = SECRET_MQTT_USER;
+const char* mqttPass = SECRET_MQTT_PASSWORD;
+// const char* mqttTopic = SECRET_MQTT_TOPIC;
+
+// root ca certificate (on debian 13 vm)
+const char* caCert = \
+"-----BEGIN CERTIFICATE-----\n" \
+"MIID5zCCAs+gAwIBAgIULAON6o/J1GsSV2iYk1qk27bevgswDQYJKoZIhvcNAQEL\n" \
+"BQAwgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQIDAdOYWlyb2JpMRAwDgYDVQQHDAdO\n" \
+"YWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNoIElvVCBTZWMgTHRkMRYwFAYDVQQL\n" \
+"DA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1UcmlhZFdhdGNoLUNBMB4XDTI1MDgy\n" \
+"OTIwMjkxOVoXDTI2MDgyOTIwMjkxOVowgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQI\n" \
+"DAdOYWlyb2JpMRAwDgYDVQQHDAdOYWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNo\n" \
+"IElvVCBTZWMgTHRkMRYwFAYDVQQLDA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1U\n" \
+"cmlhZFdhdGNoLUNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo5vS\n" \
+"tQcxJFwOeOfyvCTYyiXMRqPsFW5sPATI5jmQV6689gamS1820DZQJ9Tcv39C6SSC\n" \
+"JAHIYrWMQsKnEzLyrIodbpHq9ZDPGS4l4gzglW9zO7R/cthes7IYuS1p1AvkvmOm\n" \
+"4qFJOyxbLmS1R8rB1+p/EG6aAk4VFl7LaZN0dgNJhxqrFF+LCU2BaHCAjtqvglJY\n" \
+"pYvXHMTDk/wXK8swJ+zBdV6a3acb8Mb//XBmDg1REYndGsEKHr2nltP5q71PdZDo\n" \
+"8+Oh0st6lbnTfPyDZJE2/JzZX6fqGP36tC7f16De3dcbL9+kKIhZUlt1rrsU1BkG\n" \
+"CKMujTzWHF1JmWUVqQIDAQABo1MwUTAdBgNVHQ4EFgQU9ZNF2XeMXoJnkL4bTAKl\n" \
+"HLg6kRgwHwYDVR0jBBgwFoAU9ZNF2XeMXoJnkL4bTAKlHLg6kRgwDwYDVR0TAQH/\n" \
+"BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAayJBX1dOqIUGu9VipImseKmaLH8j\n" \
+"3bQ3s479UXGN4XP+UhcDP1joYRGHye0XwIqMnoZ6MUhsYPCKNBFVrZMfrT+RAxOE\n" \
+"aM9GdRnNI+/wwqjFxkY1UH6rRGmjLIq5aTRuziVApAAE30yGC2trR3AKxh1zJLyq\n" \
+"WXx9ZqfPe+p/hjVsAE8PU8tI17qwfELTXO7CLZ410cwPgm1efER+1pH7Qshcpj7k\n" \
+"n2YyZJvxYmNiEo4GjkTu/iTfA65QVIlyAVOxA158ZSm0qARCysrUzsNiw8BJnVmW\n" \
+"6ll0xvR2BVxWkrQBWAOpcsZH475Uk53YacmcgZ83myDeeYIZ2rePxhOpGg==\n" \
+"-----END CERTIFICATE-----\n";
+
 // pin configurations
-const int blueLEDPin = 25;  
+const int blueLEDPin = 25;
 const int whiteLEDPin = 26;
 const int buzzerPin = 19;
 const int ldrPin = 34;
@@ -58,6 +95,9 @@ time_t bootTime;  // store the actual UTC time at boot
 // objects
 DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+WiFiClientSecure secureClient;
+PubSubClient mqttClient(secureClient);
+
 FirebaseData fbData;
 FirebaseAuth auth;
 FirebaseConfig config;
@@ -87,6 +127,42 @@ void sendSensorToFirebase(String type, String encrypted, String hash) {
     Serial.print("Firebase push failed: ");
     Serial.println(fbData.errorReason());
   }
+}
+
+// function for connecting the mqtt broker
+void connectMQTT() {
+  secureClient.setCACert(caCert);
+
+  while (!mqttClient.connected()) {
+    Serial.print("Connecting to MQTT...");
+    if (mqttClient.connect("ESP32Client", mqttUser, mqttPass)) {
+      Serial.println("MQTT Connected");
+      mqttClient.subscribe("secure_monitoring/led/white");
+      mqttClient.subscribe("secure_monitoring/led/blue");
+    } else {
+      Serial.print("Failed: ");
+      Serial.println(mqttClient.state());
+      Serial.println("Retrying in 5 seconds...");
+      delay(5000);
+    }
+  }
+}
+
+// function for publishing sensor data over mqtt
+void publishSensorData(String tempEnc, String tempHash,
+                       String humEnc, String humHash,
+                       String ldrEnc, String ldrHash,
+                       String distEnc, String distHash) {
+  String tempPayload = "{\"cipher\":\"" + tempEnc + "\", \"hash\":\"" + tempHash + "\"}";
+  String humPayload = "{\"cipher\":\"" + humEnc + "\",  \"hash\":\"" + humHash + "\"}";
+  String ldrPayload = "{\"cipher\":\"" + ldrEnc + "\",  \"hash\":\"" + ldrHash + "\"}";
+  String distPayload = "{\"cipher\":\"" + distEnc + "\", \"hash\":\"" + distHash + "\"}";
+
+  // publish to corresponding topics
+  mqttClient.publish("secure_monitoring/temperature", tempPayload.c_str());
+  mqttClient.publish("secure_monitoring/humidity", humPayload.c_str());
+  mqttClient.publish("secure_monitoring/ldr", ldrPayload.c_str());
+  mqttClient.publish("secure_monitoring/distance", distPayload.c_str());
 }
 
 
@@ -190,6 +266,10 @@ void setup() {
   }
   Serial.println("Connected!");
 
+  // --- Print free heap for debugging ---
+  Serial.print("Free heap after Wi-Fi connect: ");
+  Serial.println(ESP.getFreeHeap());
+
   // initialize NTP to get the current time information
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Serial.println("Fetching NTP time...");
@@ -204,28 +284,8 @@ void setup() {
   Serial.print("Boot UTC time: ");
   Serial.println(bootTime);
 
-  // firebase initialization and config
-  config.api_key = SECRET_API_KEY;
-  config.database_url = SECRET_DATABASE_URL;
-
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
-
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(true);
-
-  // begin Firebase stream for the LEDs
-  if (!Firebase.RTDB.beginStream(&fbBlueLEDData, BLUE_LED_DB_PATH)) {
-    Serial.println("Failed to begin stream for Blue LED:");
-    Serial.println(fbBlueLEDData.errorReason());
-  }
-
-  if (!Firebase.RTDB.beginStream(&fbWhiteLEDData, WHITE_LED_DB_PATH)) {
-    Serial.println("Failed to begin stream for White LED:");
-    Serial.println(fbWhiteLEDData.errorReason());
-  }
   // initialization of the OLED display
-  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {  
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
       ;
@@ -240,95 +300,32 @@ void setup() {
   delay(2000);
 
   dht.begin();  // initialize the dht11 module
+
+  // --- Initialize MQTT ---
+  Serial.println("Setting up MQTT client...");
+  secureClient.setCACert(caCert);           // set CA before connecting
+  mqttClient.setServer(mqttServer, mqttPort);
+
+  // Optional: Generate a unique client ID to avoid collisions
+  String clientId = "ESP32Client-" + String(esp_random());
+  if (mqttClient.connect(clientId.c_str(), mqttUser, mqttPass)) {
+    Serial.println("MQTT Connected!");
+  } else {
+    Serial.print("MQTT connect failed: ");
+    Serial.println(mqttClient.state());
+    Serial.println("Will retry in loop()...");
+  }
+
+  // --- Print free heap after all init ---
+  Serial.print("Free heap after setup: ");
+  Serial.println(ESP.getFreeHeap());
 }
 
 void loop() {
-    if (Firebase.RTDB.readStream(&fbBlueLEDData)) { // check stream for blue LED
-    if (fbBlueLEDData.streamAvailable()) {
-      Serial.println("--- Blue LED Stream Event ---"); // differentiate logs
-      Serial.print("Path: "); Serial.println(fbBlueLEDData.dataPath());
-      Serial.print("Type: "); Serial.println(fbBlueLEDData.eventType());
-
-      // expecting a boolean value from the mobile app for the LED state
-      if (fbBlueLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
-        bool blueLEDIsOn = fbBlueLEDData.boolData();  // read value as boolean
-        Serial.print("Received Blue LED state (boolean): ");
-        Serial.println(blueLEDIsOn ? "true (ON)" : "false (OFF)");
-
-        // blue LED toggle
-        if (blueLEDIsOn) {
-          digitalWrite(blueLEDPin, HIGH);
-          Serial.println("Blue LED Turned ON");
-        } else {
-          digitalWrite(blueLEDPin, LOW);  
-          Serial.println("Blue LED Turned OFF");
-        }
-      }
-      // fallback for string data for Blue LED
-      else if (fbBlueLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
-        String blueLEDStateStr = fbBlueLEDData.stringData();
-        Serial.print("Received Blue LED state (string - manual test?): ");
-        Serial.println(blueLEDStateStr);
-        if (blueLEDStateStr.equalsIgnoreCase("true") || blueLEDStateStr.equalsIgnoreCase("on")) {
-          digitalWrite(blueLEDPin, HIGH);
-          Serial.println("Blue LED Turned ON (from string)");
-        } else if (blueLEDStateStr.equalsIgnoreCase("false") || blueLEDStateStr.equalsIgnoreCase("off")) {
-          digitalWrite(blueLEDPin, LOW);  
-          Serial.println("Blue LED Turned OFF (from string)");
-        } else {
-          Serial.print("Unknown string value for Blue LED state: "); Serial.println(blueLEDStateStr);
-        }
-      } else {
-        Serial.print("Unexpected data type for Blue LED state: ");
-        Serial.println(fbBlueLEDData.dataType());
-        Serial.print("Payload: "); Serial.println(fbBlueLEDData.payload());
-      }
-    }
+  if (!mqttClient.connected()) {
+    connectMQTT();
   }
- 
-  // white LED control
-  if (Firebase.RTDB.readStream(&fbWhiteLEDData)) { // check stream for white LED
-    if (fbWhiteLEDData.streamAvailable()) {
-      Serial.println("--- White LED Stream Event ---"); 
-      Serial.print("Path: "); Serial.println(fbWhiteLEDData.dataPath());
-      Serial.print("Type: "); Serial.println(fbWhiteLEDData.eventType());
-
-      // expecting a boolean value from the mobile app for the LED state
-      if (fbWhiteLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
-        bool whiteLEDIsOn = fbWhiteLEDData.boolData();  // read value as boolean
-        Serial.print("Received White LED state (boolean): ");
-        Serial.println(whiteLEDIsOn ? "true (ON)" : "false (OFF)");
-
-        // white LED toggle
-        if (whiteLEDIsOn) {
-          digitalWrite(whiteLEDPin, HIGH); 
-          Serial.println("White LED Turned ON");
-        } else {
-          digitalWrite(whiteLEDPin, LOW);  
-          Serial.println("White LED Turned OFF");
-        }
-      }
-      // fallback for string data for white LED
-      else if (fbWhiteLEDData.dataTypeEnum() == fb_esp_rtdb_data_type_string) {
-        String whiteLEDStateStr = fbWhiteLEDData.stringData();
-        Serial.print("Received White LED state (string - manual test?): ");
-        Serial.println(whiteLEDStateStr);
-        if (whiteLEDStateStr.equalsIgnoreCase("true") || whiteLEDStateStr.equalsIgnoreCase("on")) {
-          digitalWrite(whiteLEDPin, HIGH); 
-          Serial.println("White LED Turned ON (from string)");
-        } else if (whiteLEDStateStr.equalsIgnoreCase("false") || whiteLEDStateStr.equalsIgnoreCase("off")) {
-          digitalWrite(whiteLEDPin, LOW);  
-          Serial.println("White LED Turned OFF (from string)");
-        } else {
-          Serial.print("Unknown string value for White LED state: "); Serial.println(whiteLEDStateStr);
-        }
-      } else {
-        Serial.print("Unexpected data type for White LED state: ");
-        Serial.println(fbWhiteLEDData.dataType());
-        Serial.print("Payload: "); Serial.println(fbWhiteLEDData.payload());
-      }
-    }
-  }
+  mqttClient.loop();
 
   // implement non-blocking for the LED toggle
   unsigned long currentMillis = millis();
@@ -336,7 +333,8 @@ void loop() {
     lastSensorRead = currentMillis;
 
     Serial.println("-------------------------------------");
-    Serial.println("Reading sensors and sending to Firebase...");
+    Serial.println("Reading sensors and sending to MQTT broker. Timestamp (ms):");
+    Serial.println(currentMillis);
 
     // clear OLED and set cursor
     display.clearDisplay();
@@ -360,6 +358,10 @@ void loop() {
     // read LDR values
     int ldrValue = analogRead(ldrPin);
 
+    unsigned long afterReadMillis = millis();
+    Serial.print("After reading sensors (ms): ");
+    Serial.println(afterReadMillis);
+
     if (isnan(humidity) || isnan(temperature)) {
       Serial.println("Failed to read from DHT sensor!");
       display.print("DHT11 module error");
@@ -376,18 +378,25 @@ void loop() {
       String humidityEncrypted = encryptSensorData(humidityPayload);
       String ldrEncrypted = encryptSensorData(ldrPayload);
       String distanceEncrypted = encryptSensorData(distancePayload);
-      
+
       // compute the hash for the sensor data
       String tempHash = hashSensorData(tempPayload);
       String humidityHash = hashSensorData(humidityPayload);
       String ldrHash = hashSensorData(ldrPayload);
       String distanceHash = hashSensorData(distancePayload);
 
-      // log to Firebase 
-      sendSensorToFirebase("temperature", tempEncrypted, tempHash);
-      sendSensorToFirebase("humidity", humidityEncrypted, humidityHash);
-      sendSensorToFirebase("ldr", ldrEncrypted, ldrHash);
-      sendSensorToFirebase("distance", distanceEncrypted, distanceHash);
+      unsigned long afterEncryptMillis = millis();
+      Serial.print("After encryption (ms): ");
+      Serial.println(afterEncryptMillis);
+
+      publishSensorData(tempEncrypted, tempHash, 
+                  humidityEncrypted, humidityHash, 
+                  ldrEncrypted, ldrHash, 
+                  distanceEncrypted, distanceHash);
+
+      unsigned long afterMQTTMillis = millis();
+      Serial.print("After MQTT publish (ms): ");
+      Serial.println(afterMQTTMillis);
 
       // display on OLED
       String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload + ", " + distancePayload;
@@ -399,18 +408,27 @@ void loop() {
       display.println(humidityEncrypted);
 
       // serial output
-      Serial.print("Payload: "); Serial.println(combinedPayload);
-      Serial.print("Encrypted Temp: "); Serial.println(tempEncrypted);
-      Serial.print("SHA-256 Temp: "); Serial.println(tempHash);
-      Serial.print("Encrypted Hum: "); Serial.println(humidityEncrypted);
-      Serial.print("SHA-256 Hum: "); Serial.println(humidityHash);
-      Serial.print("Encrypted LDR: "); Serial.println(ldrEncrypted);
-      Serial.print("SHA-256 LDR: "); Serial.println(ldrHash);
-      Serial.print("Encrypted distance: "); Serial.println(distanceEncrypted);
-      Serial.print("SHA-256 Distance: "); Serial.println(distanceHash);
+      Serial.print("Payload: ");
+      Serial.println(combinedPayload);
+      Serial.print("Encrypted Temp: ");
+      Serial.println(tempEncrypted);
+      Serial.print("SHA-256 Temp: ");
+      Serial.println(tempHash);
+      Serial.print("Encrypted Hum: ");
+      Serial.println(humidityEncrypted);
+      Serial.print("SHA-256 Hum: ");
+      Serial.println(humidityHash);
+      Serial.print("Encrypted LDR: ");
+      Serial.println(ldrEncrypted);
+      Serial.print("SHA-256 LDR: ");
+      Serial.println(ldrHash);
+      Serial.print("Encrypted distance: ");
+      Serial.println(distanceEncrypted);
+      Serial.print("SHA-256 Distance: ");
+      Serial.println(distanceHash);
     }
     display.display();
-    Serial.println("Sensor data processing and Firebase send complete.");
+    Serial.println("Sensor data processing and MQTT send complete.");
     Serial.println("-------------------------------------");
   }
 }
