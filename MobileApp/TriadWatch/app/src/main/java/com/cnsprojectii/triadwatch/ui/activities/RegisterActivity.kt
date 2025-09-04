@@ -40,6 +40,8 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.platform.LocalContext
 
 class RegisterActivity : ComponentActivity() {
 
@@ -172,19 +174,44 @@ fun RegistrationButton(onRegisterClick: () -> Unit) {
 // Login and reset links
 @Composable
 fun LoginAndResetLinks() {
+    val context = LocalContext.current // Get the current context
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(buildAnnotatedString {
+        val loginAnnotatedString = buildAnnotatedString {
             append("Already have an account? ")
-            withStyle(SpanStyle(color = Color.Blue)) {
+            pushStringAnnotation(tag = "LOGIN_LINK", annotation = "login") // Add an annotation
+            withStyle(style = SpanStyle(color = Color.Blue)) { // Optional: make it bold too
                 append("Login here")
             }
-        })
+            pop() // Pop the annotation
+        }
 
+        ClickableText(
+            text = loginAnnotatedString,
+            onClick = { offset ->
+                loginAnnotatedString.getStringAnnotations(tag = "LOGIN_LINK", start = offset, end = offset)
+                    .firstOrNull()?.let { annotation ->
+                        // Annotation found, navigate to LoginActivity
+                        Log.d(TAG, "Login link clicked. Navigating to LoginActivity.")
+                        val intent = Intent(context, LoginActivity::class.java)
+                        // Optional: Add flags if needed, though for just starting it might not be necessary
+                        // intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        context.startActivity(intent)
+                        // If RegisterActivity should finish after navigating to Login
+                        // (context as? Activity)?.finish() // Consider if this is desired UX
+                    }
+            }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp)) // Add some space
+
+        // For "Reset here" - you can apply a similar pattern if you make it clickable
         Text(buildAnnotatedString {
             append("Forgot your password? ")
-            withStyle(SpanStyle(color = Color.Blue)) {
+            // If you make "Reset here" clickable, use pushStringAnnotation and ClickableText too
+            withStyle(SpanStyle(color = Color.Blue)) { // Make this bold too if "Login here" is bold
                 append("Reset here")
             }
         })

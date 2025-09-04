@@ -1,9 +1,13 @@
 package com.cnsprojectii.triadwatch.ui.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.ManageHistory
 import androidx.compose.material.icons.outlined.Settings
 //import androidx.compose.ui.graphics.BlendMode.Companion.Screen
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -14,9 +18,8 @@ sealed class Screen(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    object Home : Screen("home", "Home", Icons.Filled.Settings, Icons.Outlined.Home)
-    object History: Screen("history", "History", Icons.Filled.Settings, Icons.Outlined.Home)
-    object Nodes: Screen("nodes", "Nodes", Icons.Filled.Settings, Icons.Outlined.Settings)
+    object Home : Screen("home", "Home", Icons.Filled.Home, Icons.Outlined.Home)
+    object History: Screen("history", "History", Icons.Filled.History, Icons.Outlined.History)
     object Settings: Screen("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
@@ -24,6 +27,5 @@ sealed class Screen(
 val bottomBarScreens: List<Screen> = listOf(
     Screen.Home,
     Screen.History,
-    Screen.Nodes,
     Screen.Settings
 )

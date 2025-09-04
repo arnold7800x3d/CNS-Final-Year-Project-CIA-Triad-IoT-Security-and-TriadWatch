@@ -1,16 +1,29 @@
 package com.cnsprojectii.triadwatch.ui.navigation
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -19,8 +32,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.cnsprojectii.triadwatch.R
 import com.cnsprojectii.triadwatch.ui.screens.HomeScreenContent
-import com.cnsprojectii.triadwatch.ui.screens.NodesScreenContent
 import com.cnsprojectii.triadwatch.ui.screens.SettingsScreenContent
 import com.cnsprojectii.triadwatch.ui.screens.HistoryScreenContent
 import com.google.firebase.auth.FirebaseUser
@@ -95,26 +108,46 @@ fun BottomNavigationBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class) // Annotation for experimental Material 3 APIs like TopAppBar
 @Composable
 fun MainApplicationScreen(
     loggedInUser: FirebaseUser?,
     onLogout: () -> Unit
-) { // pass the FirebaseUser to the MainApplicationScreen
+) {
     val navController = rememberNavController()
+
+    // Determine the current route to conditionally show/hide TopAppBar or change its title
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    // Define which screens should not have the main TopAppBar
+    // or might have a different one (e.g., settings might have its own specific app bar)
+    val screensWithoutMainTopBar: List<String> = listOf(
+        // Add routes here if they should not show this generic TopAppBar
+        // Screen.Settings.route // Example: if Settings has its own specialized TopAppBar
+    )
+
+    val showMainTopBar = !screensWithoutMainTopBar.contains(currentRoute) &&
+            bottomBarScreens.any { currentRoute == it.route } // Show only for main bottom bar screens
+
     Scaffold(
+        topBar = {
+            TriadWatchTopAppBar()
+        },
         bottomBar = {
             BottomNavigationBar(navController = navController)
         }
     ) { innerPadding ->
-        // hosting the various screen destination composable functions
         ApplicationNavHost(
             navController = navController,
             modifier = Modifier.padding(innerPadding),
-            loggedInUser = loggedInUser, // pass the FirebaseUser to the ApplicationNavHost
+            loggedInUser = loggedInUser,
             onLogout = onLogout
         )
     }
 }
+
+
 
 @Composable
 fun ApplicationNavHost(
@@ -130,7 +163,6 @@ fun ApplicationNavHost(
     ) {
         composable(Screen.Home.route) { HomeScreenContent(userEmail = loggedInUser?.email) }
         composable(Screen.History.route) { HistoryScreenContent() }
-        composable(Screen.Nodes.route) { NodesScreenContent() }
         composable(Screen.Settings.route) {
             SettingsScreenContent(
                 userEmail = loggedInUser?.email,
@@ -138,4 +170,30 @@ fun ApplicationNavHost(
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TriadWatchTopAppBar(modifier: Modifier = Modifier) {
+    CenterAlignedTopAppBar(
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    modifier = Modifier
+                        .size(80.dp),
+                        //.padding(),
+                    painter = painterResource(R.drawable.triadwatchlogo),
+                    contentDescription = null
+                )
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineLarge
+                )
+            }
+        },
+        modifier = modifier
+            .height(80.dp)
+    )
 }
