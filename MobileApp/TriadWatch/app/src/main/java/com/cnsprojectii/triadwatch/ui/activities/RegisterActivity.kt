@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 
 class RegisterActivity : ComponentActivity() {
@@ -143,8 +145,10 @@ fun WelcomeText() {
 
 // Email input
 @Composable
-fun EmailInput(email: String, onEmailChange: (String) -> Unit) {
+fun EmailInput(modifier: Modifier = Modifier,email: String, onEmailChange: (String) -> Unit) {
     TextField(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp)),
         value = email,
         onValueChange = onEmailChange,
         placeholder = { Text("Enter your preferred email address")}
@@ -153,8 +157,10 @@ fun EmailInput(email: String, onEmailChange: (String) -> Unit) {
 
 // Password Input
 @Composable
-fun PasswordInput(password: String, onPasswordChange: (String) -> Unit) {
+fun PasswordInput(modifier: Modifier = Modifier,password: String, onPasswordChange: (String) -> Unit) {
     TextField(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp)),
         value = password,
         onValueChange = onPasswordChange,
         placeholder = { Text("Enter your preferred password")},

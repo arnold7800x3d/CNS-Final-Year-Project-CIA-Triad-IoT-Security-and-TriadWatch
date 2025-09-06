@@ -3,11 +3,12 @@
     - esp32 38pin               - microcontroller
     - dht11 module              - temperature and humidity readings
     - OLED display              - display
-    - LED                       - status indicators
+    - LED                       - status indicators and real time control
     - PIR                       - detect motion
     - buzzer                    - alarm indicator
     - light dependent resistor  - detect light based tampering
     - ultrasonic sensor         - detect approaching objects
+    - A9G module                - gsm functionality
 */
 
 // import necessary libraries
@@ -23,7 +24,6 @@
 // WiFi transmission and Firebase
 #include <WiFi.h>
 #include "time.h"
-#include <Firebase_ESP_Client.h>
 
 // TLS security
 #include <WiFiClientSecure.h>
@@ -51,30 +51,30 @@ const char* mqttPass = SECRET_MQTT_PASSWORD;
 // const char* mqttTopic = SECRET_MQTT_TOPIC;
 
 // root ca certificate (on debian 13 vm)
-const char* caCert = \
-"-----BEGIN CERTIFICATE-----\n" \
-"MIID5zCCAs+gAwIBAgIULAON6o/J1GsSV2iYk1qk27bevgswDQYJKoZIhvcNAQEL\n" \
-"BQAwgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQIDAdOYWlyb2JpMRAwDgYDVQQHDAdO\n" \
-"YWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNoIElvVCBTZWMgTHRkMRYwFAYDVQQL\n" \
-"DA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1UcmlhZFdhdGNoLUNBMB4XDTI1MDgy\n" \
-"OTIwMjkxOVoXDTI2MDgyOTIwMjkxOVowgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQI\n" \
-"DAdOYWlyb2JpMRAwDgYDVQQHDAdOYWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNo\n" \
-"IElvVCBTZWMgTHRkMRYwFAYDVQQLDA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1U\n" \
-"cmlhZFdhdGNoLUNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo5vS\n" \
-"tQcxJFwOeOfyvCTYyiXMRqPsFW5sPATI5jmQV6689gamS1820DZQJ9Tcv39C6SSC\n" \
-"JAHIYrWMQsKnEzLyrIodbpHq9ZDPGS4l4gzglW9zO7R/cthes7IYuS1p1AvkvmOm\n" \
-"4qFJOyxbLmS1R8rB1+p/EG6aAk4VFl7LaZN0dgNJhxqrFF+LCU2BaHCAjtqvglJY\n" \
-"pYvXHMTDk/wXK8swJ+zBdV6a3acb8Mb//XBmDg1REYndGsEKHr2nltP5q71PdZDo\n" \
-"8+Oh0st6lbnTfPyDZJE2/JzZX6fqGP36tC7f16De3dcbL9+kKIhZUlt1rrsU1BkG\n" \
-"CKMujTzWHF1JmWUVqQIDAQABo1MwUTAdBgNVHQ4EFgQU9ZNF2XeMXoJnkL4bTAKl\n" \
-"HLg6kRgwHwYDVR0jBBgwFoAU9ZNF2XeMXoJnkL4bTAKlHLg6kRgwDwYDVR0TAQH/\n" \
-"BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAayJBX1dOqIUGu9VipImseKmaLH8j\n" \
-"3bQ3s479UXGN4XP+UhcDP1joYRGHye0XwIqMnoZ6MUhsYPCKNBFVrZMfrT+RAxOE\n" \
-"aM9GdRnNI+/wwqjFxkY1UH6rRGmjLIq5aTRuziVApAAE30yGC2trR3AKxh1zJLyq\n" \
-"WXx9ZqfPe+p/hjVsAE8PU8tI17qwfELTXO7CLZ410cwPgm1efER+1pH7Qshcpj7k\n" \
-"n2YyZJvxYmNiEo4GjkTu/iTfA65QVIlyAVOxA158ZSm0qARCysrUzsNiw8BJnVmW\n" \
-"6ll0xvR2BVxWkrQBWAOpcsZH475Uk53YacmcgZ83myDeeYIZ2rePxhOpGg==\n" \
-"-----END CERTIFICATE-----\n";
+const char* caCert =
+  "-----BEGIN CERTIFICATE-----\n"
+  "MIID5zCCAs+gAwIBAgIULAON6o/J1GsSV2iYk1qk27bevgswDQYJKoZIhvcNAQEL\n"
+  "BQAwgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQIDAdOYWlyb2JpMRAwDgYDVQQHDAdO\n"
+  "YWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNoIElvVCBTZWMgTHRkMRYwFAYDVQQL\n"
+  "DA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1UcmlhZFdhdGNoLUNBMB4XDTI1MDgy\n"
+  "OTIwMjkxOVoXDTI2MDgyOTIwMjkxOVowgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQI\n"
+  "DAdOYWlyb2JpMRAwDgYDVQQHDAdOYWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNo\n"
+  "IElvVCBTZWMgTHRkMRYwFAYDVQQLDA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1U\n"
+  "cmlhZFdhdGNoLUNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo5vS\n"
+  "tQcxJFwOeOfyvCTYyiXMRqPsFW5sPATI5jmQV6689gamS1820DZQJ9Tcv39C6SSC\n"
+  "JAHIYrWMQsKnEzLyrIodbpHq9ZDPGS4l4gzglW9zO7R/cthes7IYuS1p1AvkvmOm\n"
+  "4qFJOyxbLmS1R8rB1+p/EG6aAk4VFl7LaZN0dgNJhxqrFF+LCU2BaHCAjtqvglJY\n"
+  "pYvXHMTDk/wXK8swJ+zBdV6a3acb8Mb//XBmDg1REYndGsEKHr2nltP5q71PdZDo\n"
+  "8+Oh0st6lbnTfPyDZJE2/JzZX6fqGP36tC7f16De3dcbL9+kKIhZUlt1rrsU1BkG\n"
+  "CKMujTzWHF1JmWUVqQIDAQABo1MwUTAdBgNVHQ4EFgQU9ZNF2XeMXoJnkL4bTAKl\n"
+  "HLg6kRgwHwYDVR0jBBgwFoAU9ZNF2XeMXoJnkL4bTAKlHLg6kRgwDwYDVR0TAQH/\n"
+  "BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAayJBX1dOqIUGu9VipImseKmaLH8j\n"
+  "3bQ3s479UXGN4XP+UhcDP1joYRGHye0XwIqMnoZ6MUhsYPCKNBFVrZMfrT+RAxOE\n"
+  "aM9GdRnNI+/wwqjFxkY1UH6rRGmjLIq5aTRuziVApAAE30yGC2trR3AKxh1zJLyq\n"
+  "WXx9ZqfPe+p/hjVsAE8PU8tI17qwfELTXO7CLZ410cwPgm1efER+1pH7Qshcpj7k\n"
+  "n2YyZJvxYmNiEo4GjkTu/iTfA65QVIlyAVOxA158ZSm0qARCysrUzsNiw8BJnVmW\n"
+  "6ll0xvR2BVxWkrQBWAOpcsZH475Uk53YacmcgZ83myDeeYIZ2rePxhOpGg==\n"
+  "-----END CERTIFICATE-----\n";
 
 // pin configurations
 const int blueLEDPin = 25;
@@ -83,13 +83,16 @@ const int buzzerPin = 19;
 const int ldrPin = 34;
 const int trigPin = 18;
 const int echoPin = 5;
+const int pirPin = 33;
 long duration, distance;
+bool motionDetected = false;
+unsigned long lastMotionTime = 0;
+const unsigned long motionCooldown = 10000;
 
 // time settings
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3 * 3600;  // (GMT + 3)
 const int daylightOffset_sec = 0;
-
 time_t bootTime;  // store the actual UTC time at boot
 
 // objects
@@ -97,37 +100,6 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
-
-FirebaseData fbData;
-FirebaseAuth auth;
-FirebaseConfig config;
-FirebaseData fbBlueLEDData;
-FirebaseData fbWhiteLEDData;
-
-// function to upload sensor data to Firebase Realtime DB
-void sendSensorToFirebase(String type, String encrypted, String hash) {
-  String path = "/bank_monitoring/sensors/" + type;
-
-  // compute current UTC timestamp
-  time_t timestamp = bootTime + millis() / 1000;
-
-  // create JSON object sensor reading
-  FirebaseJson json;
-  json.set("encrypted", encrypted);
-  json.set("hash", hash);
-  json.set("timestamp", timestamp);
-
-  // push JSON object as a single reading
-  if (Firebase.RTDB.pushJSON(&fbData, path, &json)) {
-    // update "latest" snapshot of the sensor data which will be shown in the mobile application
-    Firebase.RTDB.setString(&fbData, path + "/latest", encrypted);
-    Firebase.RTDB.setString(&fbData, path + "/hash", hash);
-    Firebase.RTDB.setInt(&fbData, path + "/timestamp", timestamp);
-  } else {
-    Serial.print("Firebase push failed: ");
-    Serial.println(fbData.errorReason());
-  }
-}
 
 // function for connecting the mqtt broker
 void connectMQTT() {
@@ -152,17 +124,20 @@ void connectMQTT() {
 void publishSensorData(String tempEnc, String tempHash,
                        String humEnc, String humHash,
                        String ldrEnc, String ldrHash,
-                       String distEnc, String distHash) {
+                       String distEnc, String distHash,
+                       String motionEnc, String motionHash) {
   String tempPayload = "{\"cipher\":\"" + tempEnc + "\", \"hash\":\"" + tempHash + "\"}";
   String humPayload = "{\"cipher\":\"" + humEnc + "\",  \"hash\":\"" + humHash + "\"}";
   String ldrPayload = "{\"cipher\":\"" + ldrEnc + "\",  \"hash\":\"" + ldrHash + "\"}";
   String distPayload = "{\"cipher\":\"" + distEnc + "\", \"hash\":\"" + distHash + "\"}";
+  String motionPayload = "{\"cipher\":\"" + motionEnc + "\", \"hash\":\"" + motionHash + "\"}";
 
   // publish to corresponding topics
-  mqttClient.publish("secure_monitoring/temperature", tempPayload.c_str());
-  mqttClient.publish("secure_monitoring/humidity", humPayload.c_str());
-  mqttClient.publish("secure_monitoring/ldr", ldrPayload.c_str());
-  mqttClient.publish("secure_monitoring/distance", distPayload.c_str());
+  mqttClient.publish("bank_monitoring/temperature", tempPayload.c_str());
+  mqttClient.publish("bank_monitoring/humidity", humPayload.c_str());
+  mqttClient.publish("bank_monitoring/ldr", ldrPayload.c_str());
+  mqttClient.publish("bank_monitoring/distance", distPayload.c_str());
+  mqttClient.publish("bank_monitoring/motion", motionPayload.c_str());
 }
 
 
@@ -256,6 +231,7 @@ void setup() {
   pinMode(buzzerPin, OUTPUT);
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
+  pinMode(pirPin, INPUT);
 
   // connect to Wi-Fi
   WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
@@ -303,7 +279,7 @@ void setup() {
 
   // --- Initialize MQTT ---
   Serial.println("Setting up MQTT client...");
-  secureClient.setCACert(caCert);           // set CA before connecting
+  secureClient.setCACert(caCert);  // set CA before connecting
   mqttClient.setServer(mqttServer, mqttPort);
 
   // Optional: Generate a unique client ID to avoid collisions
@@ -342,6 +318,7 @@ void loop() {
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
 
+    // read distance values
     digitalWrite(trigPin, LOW);
     delayMicroseconds(2);
     digitalWrite(trigPin, HIGH);
@@ -357,6 +334,21 @@ void loop() {
 
     // read LDR values
     int ldrValue = analogRead(ldrPin);
+
+    // read motion variable
+    motionDetected = digitalRead(pirPin);
+    String motionPayload;
+
+    // Implement cooldown to avoid spamming
+    if (motionDetected && (millis() - lastMotionTime > motionCooldown)) {
+      motionPayload = "Detected";
+      lastMotionTime = millis();
+    } else if (!motionDetected) {
+      motionPayload = "Not Detected";
+    } else {
+      // During cooldown, keep last state
+      motionPayload = "Not Detected";
+    }
 
     unsigned long afterReadMillis = millis();
     Serial.print("After reading sensors (ms): ");
@@ -378,21 +370,24 @@ void loop() {
       String humidityEncrypted = encryptSensorData(humidityPayload);
       String ldrEncrypted = encryptSensorData(ldrPayload);
       String distanceEncrypted = encryptSensorData(distancePayload);
+      String motionEncrypted = encryptSensorData(motionPayload);
 
       // compute the hash for the sensor data
       String tempHash = hashSensorData(tempPayload);
       String humidityHash = hashSensorData(humidityPayload);
       String ldrHash = hashSensorData(ldrPayload);
       String distanceHash = hashSensorData(distancePayload);
+      String motionHash = hashSensorData(motionPayload);
 
       unsigned long afterEncryptMillis = millis();
       Serial.print("After encryption (ms): ");
       Serial.println(afterEncryptMillis);
 
-      publishSensorData(tempEncrypted, tempHash, 
-                  humidityEncrypted, humidityHash, 
-                  ldrEncrypted, ldrHash, 
-                  distanceEncrypted, distanceHash);
+      publishSensorData(tempEncrypted, tempHash,
+                        humidityEncrypted, humidityHash,
+                        ldrEncrypted, ldrHash,
+                        distanceEncrypted, distanceHash,
+                        motionEncrypted, motionHash);
 
       unsigned long afterMQTTMillis = millis();
       Serial.print("After MQTT publish (ms): ");
@@ -400,32 +395,20 @@ void loop() {
 
       // display on OLED
       String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload + ", " + distancePayload;
-      display.println("Plaintext:");
-      display.println(combinedPayload);
-      display.println("Ciphertext (Temp):");
-      display.println(tempEncrypted);
-      display.println("Ciphertext (Humidity):");
-      display.println(humidityEncrypted);
+      display.println("Temp: " + String(temperature, 1) + "C");
+      display.println("Humidity: " + String(humidity, 1) + "%");
+      display.println("LDR: " + String(ldrValue));
+      display.println("Distance: " + String(distance) + "cm");
+      display.println("Motion: " + motionPayload);
+      display.display();
 
       // serial output
-      Serial.print("Payload: ");
-      Serial.println(combinedPayload);
-      Serial.print("Encrypted Temp: ");
-      Serial.println(tempEncrypted);
-      Serial.print("SHA-256 Temp: ");
-      Serial.println(tempHash);
-      Serial.print("Encrypted Hum: ");
-      Serial.println(humidityEncrypted);
-      Serial.print("SHA-256 Hum: ");
-      Serial.println(humidityHash);
-      Serial.print("Encrypted LDR: ");
-      Serial.println(ldrEncrypted);
-      Serial.print("SHA-256 LDR: ");
-      Serial.println(ldrHash);
-      Serial.print("Encrypted distance: ");
-      Serial.println(distanceEncrypted);
-      Serial.print("SHA-256 Distance: ");
-      Serial.println(distanceHash);
+      Serial.println("Plaintext: " + combinedPayload);
+      Serial.println("Temp: " + tempPayload + " | Encrypted: " + tempEncrypted + " | Hash: " + tempHash);
+      Serial.println("Humidity: " + humidityPayload + " | Encrypted: " + humidityEncrypted + " | Hash: " + humidityHash);
+      Serial.println("LDR: " + ldrPayload + " | Encrypted: " + ldrEncrypted + " | Hash: " + ldrHash);
+      Serial.println("Distance: " + distancePayload + " | Encrypted: " + distanceEncrypted + " | Hash: " + distanceHash);
+      Serial.println("Motion: " + motionPayload + " | Encrypted: " + motionEncrypted + " | Hash: " + motionHash);
     }
     display.display();
     Serial.println("Sensor data processing and MQTT send complete.");

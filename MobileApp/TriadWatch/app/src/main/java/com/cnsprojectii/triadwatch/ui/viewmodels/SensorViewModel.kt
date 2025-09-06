@@ -13,8 +13,10 @@ import org.eclipse.paho.client.mqttv3.*
 import org.json.JSONObject
 import javax.crypto.SecretKey
 import androidx.lifecycle.viewModelScope
+//import androidx.preference.contains
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.text.replace
 
 // MQTT Configuration
 private const val MQTT_BROKER_URL = "ssl://192.168.1.8:8883"
@@ -22,10 +24,11 @@ private const val MQTT_CLIENT_ID_PREFIX = "TriadWatchAppClient"
 private const val MQTT_USERNAME = "arnold"
 private const val MQTT_PASSWORD = "7945"
 
-private const val TOPIC_TEMPERATURE = "secure_monitoring/temperature"
-private const val TOPIC_HUMIDITY = "secure_monitoring/humidity"
-private const val TOPIC_LDR = "secure_monitoring/ldr" // New LDR topic
-private const val TOPIC_DISTANCE = "secure_monitoring/distance" // New Distance topic
+private const val TOPIC_TEMPERATURE = "bank_monitoring/temperature"
+private const val TOPIC_HUMIDITY = "bank_monitoring/humidity"
+private const val TOPIC_LDR = "bank_monitoring/ldr" // New LDR topic
+private const val TOPIC_DISTANCE = "bank_monitoring/distance" // New Distance topic
+private const val TOPIC_MOTION = "bank_monitoring/motion"
 
 class SensorViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -146,7 +149,8 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                             temperature = "N/A",
                             humidity = "N/A",
                             ldrResistance = "N/A", // Updated
-                            distance = "N/A" // Updated
+                            distance = "N/A", // Updated
+                            motion = "N/A"
                         )
                     }
                 }
@@ -159,7 +163,8 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     temperature = "N/A",
                     humidity = "N/A",
                     ldrResistance = "N/A", // Updated
-                    distance = "N/A" // Updated
+                    distance = "N/A", // Updated
+                    motion = "N/A"
                 )
             }
         }
@@ -171,6 +176,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
             mqttClient?.subscribe(TOPIC_HUMIDITY, 1)
             mqttClient?.subscribe(TOPIC_LDR, 1) // Subscribe to LDR
             mqttClient?.subscribe(TOPIC_DISTANCE, 1) // Subscribe to Distance
+            mqttClient?.subscribe(TOPIC_MOTION, 1) // Subscribe to Motion topic
             Log.i("SensorViewModel_MQTT", "Subscribed to MQTT topics: $TOPIC_TEMPERATURE, $TOPIC_HUMIDITY, $TOPIC_LDR, $TOPIC_DISTANCE")
         } catch (e: MqttException) {
             Log.e("SensorViewModel_MQTT", "MQTT Subscription failed.", e)
@@ -195,6 +201,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     TOPIC_HUMIDITY -> "Humidity:"
                     TOPIC_LDR -> "LDR:"           // Placeholder for your LDR prefix
                     TOPIC_DISTANCE -> "Distance:"
+                    TOPIC_MOTION -> ""
                     else -> "" // No prefix for LDR and Distance
                 }
                 decryptedValue.substringAfter(prefix, "").trim().ifEmpty { decryptedValue }
@@ -215,6 +222,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         val integrityFailMsgHum = "Hum data integrity fail."
         val integrityFailMsgLdr = "LDR data integrity fail." // New
         val integrityFailMsgDist = "Dist data integrity fail." // New
+        val integrityFailMsgMotion = "Motion data integrity fail." // New for motion
 
         when (topic) {
             TOPIC_TEMPERATURE -> {
@@ -269,6 +277,19 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     statusMessage = newStatus
                 )
             }
+            TOPIC_MOTION -> { // New case for Motion
+                newStatus = if (!isVerified && value == "Verify Failed") {
+                    if (newStatus?.contains(integrityFailMsgMotion) == false) "${newStatus ?: ""} $integrityFailMsgMotion".trim() else integrityFailMsgMotion
+                } else {
+                    newStatus?.replace(integrityFailMsgMotion, "")?.trim()?.ifEmpty { null }
+                }
+                _sensorReadingsState.value = current.copy(
+                    motion = value, // Update motion state
+                    isMotionVerified = isVerified, // Update motion verification
+                    lastUpdateTimestamp = timestamp,
+                    statusMessage = newStatus
+                )
+            }
         }
     }
 
@@ -299,6 +320,12 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     isDistanceVerified = false
                 )
             }
+            TOPIC_MOTION -> {
+                _sensorReadingsState.value = current.copy(
+                    motion = errorType,
+                    isMotionVerified = false
+                )
+            }
         }
     }
 
@@ -307,7 +334,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         Log.d("SensorViewModel_MQTT", "ViewModel cleared. Disconnecting MQTT client.")
         try {
             // Unsubscribe from all topics
-            mqttClient?.unsubscribe(arrayOf(TOPIC_TEMPERATURE, TOPIC_HUMIDITY, TOPIC_LDR, TOPIC_DISTANCE))
+            mqttClient?.unsubscribe(arrayOf(TOPIC_TEMPERATURE, TOPIC_HUMIDITY, TOPIC_LDR, TOPIC_DISTANCE, TOPIC_MOTION))
             mqttClient?.disconnect()
             mqttClient?.close()
             Log.i("SensorViewModel_MQTT", "MQTT client disconnected and closed.")

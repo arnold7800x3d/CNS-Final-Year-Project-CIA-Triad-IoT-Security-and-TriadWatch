@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Text
@@ -25,7 +26,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -132,8 +135,10 @@ fun LoginWelcomeText() {
 }
 
 @Composable
-fun LoginEmailInput(email: String, onEmailChange: (String) -> Unit) {
+fun LoginEmailInput(modifier: Modifier = Modifier, email: String, onEmailChange: (String) -> Unit) {
     TextField(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp)),
         value = email,
         onValueChange = onEmailChange,
         label = { Text("Email Address") }
@@ -141,8 +146,10 @@ fun LoginEmailInput(email: String, onEmailChange: (String) -> Unit) {
 }
 
 @Composable
-fun LoginPasswordInput(password: String, onPasswordChange: (String) -> Unit) {
+fun LoginPasswordInput(modifier: Modifier = Modifier, password: String, onPasswordChange: (String) -> Unit) {
     TextField(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp)),
         value = password,
         onValueChange = onPasswordChange,
         label = { Text("Password") },

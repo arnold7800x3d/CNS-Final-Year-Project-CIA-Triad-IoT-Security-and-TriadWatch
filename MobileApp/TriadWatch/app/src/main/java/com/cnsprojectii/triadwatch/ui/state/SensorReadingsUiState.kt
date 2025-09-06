@@ -8,7 +8,9 @@ data class SensorReadingsUiState(
     val ldrResistance: String = "Loading...",       // New field for LDR
     val isLdrResistanceVerified: Boolean = false,  // New field
     val distance: String = "Loading...",           // New field for Distance
-    val isDistanceVerified: Boolean = false,       // New field
+    val isDistanceVerified: Boolean = false,
+    val motion: String = "Loading...",
+    val isMotionVerified: Boolean = false,// New field
     val lastUpdateTimestamp: Long = 0L,
     val statusMessage: String? = null
 )

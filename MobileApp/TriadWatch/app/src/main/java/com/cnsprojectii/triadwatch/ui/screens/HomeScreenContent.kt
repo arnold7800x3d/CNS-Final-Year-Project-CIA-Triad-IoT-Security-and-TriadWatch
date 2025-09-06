@@ -112,7 +112,7 @@ fun HomeScreenContent(userEmail: String?) {
                     ResistanceContent(uiState = sensorReadingsState) // UPDATED HERE
                 }
                 LargeRoundedBox(modifier = Modifier.weight(1f)) {
-                    MotionContent()
+                    MotionContent(uiState = sensorReadingsState)
                 }
             }
 
@@ -212,11 +212,13 @@ fun HomeScreenContent(userEmail: String?) {
             sensorReadingsState.isTemperatureVerified &&
                     sensorReadingsState.isHumidityVerified &&
                     sensorReadingsState.isLdrResistanceVerified && // ADDED CHECK
-                    sensorReadingsState.isDistanceVerified -> "Sensor Data Integrity: Verified" // ADDED CHECK
+                    sensorReadingsState.isDistanceVerified &&
+                    sensorReadingsState.isMotionVerified -> "Sensor Data Integrity: Verified" // ADDED CHECK
             sensorReadingsState.temperature == "Loading..." ||
                     sensorReadingsState.humidity == "Loading..." ||
                     sensorReadingsState.ldrResistance == "Loading..." || // ADDED CHECK
-                    sensorReadingsState.distance == "Loading..." -> "Sensor Data Integrity: Checking..." // ADDED CHECK
+                    sensorReadingsState.distance == "Loading..." ||
+                    sensorReadingsState.motion == "Loading..." -> "Sensor Data Integrity: Checking..." // ADDED CHECK
             else -> "Sensor Data Integrity: Issues Detected"
         }
         Text(
@@ -227,6 +229,7 @@ fun HomeScreenContent(userEmail: String?) {
                 sensorReadingsState.isHumidityVerified &&
                 sensorReadingsState.isLdrResistanceVerified && // ADDED CHECK
                 sensorReadingsState.isDistanceVerified && // ADDED CHECK
+                sensorReadingsState.isMotionVerified &&
                 sensorReadingsState.statusMessage == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
         )
     }
@@ -374,12 +377,50 @@ fun ResistanceContent(uiState: SensorReadingsUiState) { // UPDATED to accept uiS
 }
 
 @Composable
-fun MotionContent() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun MotionContent(uiState: SensorReadingsUiState) { // Accept SensorReadingsUiState
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center // Added for better vertical centering
+    ) {
         Text("Motion", style = MaterialTheme.typography.titleMedium)
-        Text("Not Detected", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
+
+        val motionText = uiState.motion
+        val isVerified = uiState.isMotionVerified
+        val isLoading = motionText.contains("Loading...", ignoreCase = true)
+        val isError = motionText.contains("Error", ignoreCase = true) ||
+                motionText.contains("Failed", ignoreCase = true) ||
+                motionText.contains("N/A", ignoreCase = true)
+
+        val textColor = when {
+            isLoading || !isVerified || isError -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) // Default/error color
+            motionText.equals("Detected", ignoreCase = true) -> Color.Red
+            motionText.equals("Not Detected", ignoreCase = true) -> Color.Green
+            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) // Fallback for unexpected values
+        }
+
+        Text(
+            text = motionText,
+            style = MaterialTheme.typography.bodyLarge,
+            color = textColor
+        )
+
+        // Optionally, display verification status if there's an issue
+        if (!isVerified && !isLoading && !isError) {
+            Text(
+                "Verify Failed",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        } else if (motionText == "Decrypt Error") { // Specific error message
+            Text(
+                motionText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
+
 
 // ESPLedContent and ArduinoLedContent remain unchanged for now
 @Composable
