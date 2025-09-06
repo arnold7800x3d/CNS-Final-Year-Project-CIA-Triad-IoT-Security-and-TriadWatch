@@ -1,6 +1,7 @@
 package com.cnsprojectii.triadwatch.ui.screens
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,15 +24,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cnsprojectii.triadwatch.ui.components.LEDDisplayContent
 import com.cnsprojectii.triadwatch.ui.state.SensorReadingsUiState
+import com.cnsprojectii.triadwatch.ui.viewmodels.LEDType
 import com.cnsprojectii.triadwatch.ui.viewmodels.SensorViewModel
 import com.cnsprojectii.triadwatch.utils.formatTimestampForDisplay
 import com.cnsprojectii.triadwatch.viewmodels.LEDControlViewModel
-import com.cnsprojectii.triadwatch.viewmodels.LEDType
 
 @Composable
 fun HomeScreenContent(userEmail: String?) {
@@ -41,6 +43,7 @@ fun HomeScreenContent(userEmail: String?) {
 
     val ledControlViewModel: LEDControlViewModel = viewModel()
     val allLEDsUiState by ledControlViewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -116,6 +119,8 @@ fun HomeScreenContent(userEmail: String?) {
                 }
             }
 
+
+            // LED Control Row - Updated onClick logic
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -124,15 +129,26 @@ fun HomeScreenContent(userEmail: String?) {
                 LargeRoundedBox(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        if (blueLEDState.error != null && !blueLEDState.isLoading) {
-                            Log.d("HomeScreen", "Blue LED error retry tapped.")
-                            ledControlViewModel.retryListeners()
+                        if (!allLEDsUiState.isMqttConnected) {
+                            Toast.makeText(context, "MQTT Disconnected. Retrying...", Toast.LENGTH_SHORT).show()
+                            ledControlViewModel.retryConnection()
+                            // Optionally, you could also immediately try to send the command again after retryConnection
+                            // ledControlViewModel.setLEDState(LEDType.BLUE, !blueLEDState.isLEDOn)
+                        } else if (blueLEDState.error != null && !blueLEDState.isLoading) {
+                            Log.d("HomeScreen", "Blue LED error displayed. Retrying command.")
+                            Toast.makeText(context, "Retrying Blue LED command...", Toast.LENGTH_SHORT).show()
+                            // Clear the error by re-attempting the command.
+                            ledControlViewModel.setLEDState(LEDType.BLUE, !blueLEDState.isLEDOn)
                         } else if (!blueLEDState.isLoading) {
                             Log.d("HomeScreen", "Blue LED tapped. Current state: ${blueLEDState.isLEDOn}, toggling.")
                             ledControlViewModel.setLEDState(LEDType.BLUE, !blueLEDState.isLEDOn)
+                        } else {
+                            Log.d("HomeScreen", "Blue LED is currently loading/processing.")
+                            Toast.makeText(context, "Blue LED processing...", Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
+                    // Display for Blue LED
                     if (blueLEDState.error != null && !blueLEDState.isLoading) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -140,7 +156,7 @@ fun HomeScreenContent(userEmail: String?) {
                             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
                         ) {
                             Text(
-                                text = "Blue LED Error",
+                                text = blueLEDState.error.take(40), // Show the actual error, truncated
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
                                 textAlign = TextAlign.Center
@@ -154,9 +170,10 @@ fun HomeScreenContent(userEmail: String?) {
                             )
                         }
                     } else {
+                        // Assuming LEDDisplayContent is structured to show loading and on/off state
                         LEDDisplayContent(
                             ledName = "Blue LED",
-                            ledUiState = blueLEDState
+                            ledUiState = blueLEDState // Pass the LEDState
                         )
                     }
                 }
@@ -165,15 +182,23 @@ fun HomeScreenContent(userEmail: String?) {
                 LargeRoundedBox(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        if (whiteLEDState.error != null && !whiteLEDState.isLoading) {
-                            Log.d("HomeScreen", "White LED error retry tapped.")
-                            ledControlViewModel.retryListeners()
+                        if (!allLEDsUiState.isMqttConnected) {
+                            Toast.makeText(context, "MQTT Disconnected. Retrying...", Toast.LENGTH_SHORT).show()
+                            ledControlViewModel.retryConnection()
+                        } else if (whiteLEDState.error != null && !whiteLEDState.isLoading) {
+                            Log.d("HomeScreen", "White LED error displayed. Retrying command.")
+                            Toast.makeText(context, "Retrying White LED command...", Toast.LENGTH_SHORT).show()
+                            ledControlViewModel.setLEDState(LEDType.WHITE, !whiteLEDState.isLEDOn)
                         } else if (!whiteLEDState.isLoading) {
                             Log.d("HomeScreen", "White LED tapped. Current state: ${whiteLEDState.isLEDOn}, toggling.")
                             ledControlViewModel.setLEDState(LEDType.WHITE, !whiteLEDState.isLEDOn)
+                        } else {
+                            Log.d("HomeScreen", "White LED is currently loading/processing.")
+                            Toast.makeText(context, "White LED processing...", Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
+                    // Display for White LED
                     if (whiteLEDState.error != null && !whiteLEDState.isLoading) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -181,7 +206,7 @@ fun HomeScreenContent(userEmail: String?) {
                             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
                         ) {
                             Text(
-                                text = "White LED Error",
+                                text = whiteLEDState.error.take(40), // Show the actual error, truncated
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
                                 textAlign = TextAlign.Center
@@ -197,7 +222,7 @@ fun HomeScreenContent(userEmail: String?) {
                     } else {
                         LEDDisplayContent(
                             ledName = "White LED",
-                            ledUiState = whiteLEDState
+                            ledUiState = whiteLEDState // Pass the LEDState
                         )
                     }
                 }
@@ -424,7 +449,7 @@ fun MotionContent(uiState: SensorReadingsUiState) { // Accept SensorReadingsUiSt
 
 // ESPLedContent and ArduinoLedContent remain unchanged for now
 @Composable
-fun ESPLedContent(
+fun BlueLedContent(
     modifier: Modifier = Modifier,
     currentLEDIsOn: Boolean = false,
     isLoading: Boolean,
@@ -434,7 +459,7 @@ fun ESPLedContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("ESP LED", style = MaterialTheme.typography.titleMedium)
+        Text("Blue LED", style = MaterialTheme.typography.titleMedium)
         Text(
             text = if (currentLEDIsOn) "On" else "Off",
             style = MaterialTheme.typography.bodyLarge,
@@ -444,9 +469,9 @@ fun ESPLedContent(
 }
 
 @Composable
-fun ArduinoLedContent() {
+fun WhiteLedContent() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Arduino LED", style = MaterialTheme.typography.titleMedium)
+        Text("White LED", style = MaterialTheme.typography.titleMedium)
         Text("Off", style = MaterialTheme.typography.bodyLarge, color = Color.Red)
     }
 }

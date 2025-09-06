@@ -105,17 +105,70 @@ PubSubClient mqttClient(secureClient);
 void connectMQTT() {
   secureClient.setCACert(caCert);
 
-  while (!mqttClient.connected()) {
-    Serial.print("Connecting to MQTT...");
-    if (mqttClient.connect("ESP32Client", mqttUser, mqttPass)) {
-      Serial.println("MQTT Connected");
-      mqttClient.subscribe("secure_monitoring/led/white");
-      mqttClient.subscribe("secure_monitoring/led/blue");
+  if (!mqttClient.connected()) {  // Check again before entering while loop
+    Serial.println("MQTT disconnected, attempting reconnect from connectMQTT().");
+    attemptMqttConnectionAndSubscribe();  // Reuse the helper
+    if (!mqttClient.connected()) {        // If still not connected after one attempt
+      Serial.println("Reconnect attempt failed. Will retry in loop(). Delaying...");
+      delay(5000);  // Add a delay before next attempt from loop()
+    }
+  }
+}
+
+void attemptMqttConnectionAndSubscribe() {
+  if (!mqttClient.connected()) {  // Only attempt if not already connected
+    Serial.print("Attempting MQTT connection (and subscription)...");
+    String clientId = "ESP32Client-" + String(WiFi.macAddress());  // More unique client ID
+    if (mqttClient.connect(clientId.c_str(), mqttUser, mqttPass)) {
+      Serial.println("MQTT Connected!");
+      // Subscribe to topics
+      if (mqttClient.subscribe("bank_monitoring/led/white")) {  // Check subscription success
+        Serial.println("Subscribed to bank_monitoring/led/white");
+      } else {
+        Serial.println("ERROR subscribing to bank_monitoring/led/white");
+      }
+      if (mqttClient.subscribe("bank_monitoring/led/blue")) {
+        Serial.println("Subscribed to bank_monitoring/led/blue");
+      } else {
+        Serial.println("ERROR subscribing to bank_monitoring/led/blue");
+      }
     } else {
-      Serial.print("Failed: ");
-      Serial.println(mqttClient.state());
-      Serial.println("Retrying in 5 seconds...");
-      delay(5000);
+      Serial.print("MQTT connect failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" Will retry in loop()...");
+    }
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("]: ");
+  Serial.println(message);
+
+  // Control LEDs based on topic and message
+  if (String(topic) == "bank_monitoring/led/white") {
+    if (message == "ON") {
+      digitalWrite(whiteLEDPin, HIGH);
+      Serial.println("White LED turned ON");
+    } else if (message == "OFF") {
+      digitalWrite(whiteLEDPin, LOW);
+      Serial.println("White LED turned OFF");
+    }
+  }
+
+  if (String(topic) == "bank_monitoring/led/blue") {
+    if (message == "ON") {
+      digitalWrite(blueLEDPin, HIGH);
+      Serial.println("Blue LED turned ON");
+    } else if (message == "OFF") {
+      digitalWrite(blueLEDPin, LOW);
+      Serial.println("Blue LED turned OFF");
     }
   }
 }
@@ -282,15 +335,8 @@ void setup() {
   secureClient.setCACert(caCert);  // set CA before connecting
   mqttClient.setServer(mqttServer, mqttPort);
 
-  // Optional: Generate a unique client ID to avoid collisions
-  String clientId = "ESP32Client-" + String(esp_random());
-  if (mqttClient.connect(clientId.c_str(), mqttUser, mqttPass)) {
-    Serial.println("MQTT Connected!");
-  } else {
-    Serial.print("MQTT connect failed: ");
-    Serial.println(mqttClient.state());
-    Serial.println("Will retry in loop()...");
-  }
+  mqttClient.setCallback(mqttCallback);
+  attemptMqttConnectionAndSubscribe();
 
   // --- Print free heap after all init ---
   Serial.print("Free heap after setup: ");

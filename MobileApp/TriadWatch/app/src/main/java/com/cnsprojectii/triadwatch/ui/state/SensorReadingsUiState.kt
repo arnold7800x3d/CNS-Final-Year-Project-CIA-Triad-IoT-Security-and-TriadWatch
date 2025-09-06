@@ -14,3 +14,17 @@ data class SensorReadingsUiState(
     val lastUpdateTimestamp: Long = 0L,
     val statusMessage: String? = null
 )
+
+// Represents the state of a single LED
+data class LEDState(
+    val isLEDOn: Boolean = false,
+    val isLoading: Boolean = false, // For when a command is sent, waiting for confirmation
+    val error: String? = null
+)
+
+// Represents the combined state of all controllable LEDs
+data class AllLEDsUiState(
+    val blueLEDState: LEDState = LEDState(isLoading = false), // Start as loading
+    val whiteLEDState: LEDState = LEDState(isLoading = false), // Start as loading
+    val isMqttConnected: Boolean = false // Overall MQTT connection status for UI feedback
+)

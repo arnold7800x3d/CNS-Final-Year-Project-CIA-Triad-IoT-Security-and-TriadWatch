@@ -9,13 +9,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import com.cnsprojectii.triadwatch.viewmodels.IndividualLEDUiState // Import the state
-
+import com.cnsprojectii.triadwatch.ui.state.LEDState // CORRECT
 @Composable
 fun LEDDisplayContent( // This is the content that goes INSIDE a LargeRoundedBox
     modifier: Modifier = Modifier,
     ledName: String,
-    ledUiState: IndividualLEDUiState
+    ledUiState: LEDState
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
