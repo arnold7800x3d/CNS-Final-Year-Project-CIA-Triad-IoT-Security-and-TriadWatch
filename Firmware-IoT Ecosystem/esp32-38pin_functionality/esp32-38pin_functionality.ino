@@ -29,7 +29,14 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 
-// variables
+// a9g configuration
+#include <HardwareSerial.h>
+
+// a9g tx and rx configurations
+#define A9G_TX_PIN 27
+#define A9G_RX_PIN 14
+
+// dht11 variables
 #define DHTPIN 0  // pin for the DHT module
 #define DHTTYPE DHT11
 
@@ -53,27 +60,29 @@ const char* mqttPass = SECRET_MQTT_PASSWORD;
 // root ca certificate (on debian 13 vm)
 const char* caCert =
   "-----BEGIN CERTIFICATE-----\n"
-  "MIID5zCCAs+gAwIBAgIULAON6o/J1GsSV2iYk1qk27bevgswDQYJKoZIhvcNAQEL\n"
-  "BQAwgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQIDAdOYWlyb2JpMRAwDgYDVQQHDAdO\n"
-  "YWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNoIElvVCBTZWMgTHRkMRYwFAYDVQQL\n"
-  "DA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1UcmlhZFdhdGNoLUNBMB4XDTI1MDgy\n"
-  "OTIwMjkxOVoXDTI2MDgyOTIwMjkxOVowgYIxCzAJBgNVBAYTAktFMRAwDgYDVQQI\n"
-  "DAdOYWlyb2JpMRAwDgYDVQQHDAdOYWlyb2JpMR8wHQYDVQQKDBZUcmlhZFdhdGNo\n"
-  "IElvVCBTZWMgTHRkMRYwFAYDVQQLDA1DeWJlclNlY3VyaXR5MRYwFAYDVQQDDA1U\n"
-  "cmlhZFdhdGNoLUNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo5vS\n"
-  "tQcxJFwOeOfyvCTYyiXMRqPsFW5sPATI5jmQV6689gamS1820DZQJ9Tcv39C6SSC\n"
-  "JAHIYrWMQsKnEzLyrIodbpHq9ZDPGS4l4gzglW9zO7R/cthes7IYuS1p1AvkvmOm\n"
-  "4qFJOyxbLmS1R8rB1+p/EG6aAk4VFl7LaZN0dgNJhxqrFF+LCU2BaHCAjtqvglJY\n"
-  "pYvXHMTDk/wXK8swJ+zBdV6a3acb8Mb//XBmDg1REYndGsEKHr2nltP5q71PdZDo\n"
-  "8+Oh0st6lbnTfPyDZJE2/JzZX6fqGP36tC7f16De3dcbL9+kKIhZUlt1rrsU1BkG\n"
-  "CKMujTzWHF1JmWUVqQIDAQABo1MwUTAdBgNVHQ4EFgQU9ZNF2XeMXoJnkL4bTAKl\n"
-  "HLg6kRgwHwYDVR0jBBgwFoAU9ZNF2XeMXoJnkL4bTAKlHLg6kRgwDwYDVR0TAQH/\n"
-  "BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAayJBX1dOqIUGu9VipImseKmaLH8j\n"
-  "3bQ3s479UXGN4XP+UhcDP1joYRGHye0XwIqMnoZ6MUhsYPCKNBFVrZMfrT+RAxOE\n"
-  "aM9GdRnNI+/wwqjFxkY1UH6rRGmjLIq5aTRuziVApAAE30yGC2trR3AKxh1zJLyq\n"
-  "WXx9ZqfPe+p/hjVsAE8PU8tI17qwfELTXO7CLZ410cwPgm1efER+1pH7Qshcpj7k\n"
-  "n2YyZJvxYmNiEo4GjkTu/iTfA65QVIlyAVOxA158ZSm0qARCysrUzsNiw8BJnVmW\n"
-  "6ll0xvR2BVxWkrQBWAOpcsZH475Uk53YacmcgZ83myDeeYIZ2rePxhOpGg==\n"
+  "MIIERzCCAy+gAwIBAgIUI+6cAOfTb4RCOpQIRxCFkxuwWHUwDQYJKoZIhvcNAQEL\n"
+  "BQAwgbIxCzAJBgNVBAYTAktFMRAwDgYDVQQIDAdOYWlyb2JpMRAwDgYDVQQHDAdO\n"
+  "YWlyb2JpMSQwIgYDVQQKDBtUcmlhZFdhdGNoIElvVCBTZWN1cml0eSBMdGQxHjAc\n"
+  "BgNVBAsMFUN5YmVyc2VjdXJpdHkgYW5kIElvVDEPMA0GA1UEAwwGQXJub2xkMSgw\n"
+  "JgYJKoZIhvcNAQkBFhlhcm5vbGRvY2hpZW5nOTVAZ21haWwuY29tMB4XDTI1MDky\n"
+  "NDIzMzgyMVoXDTI2MDkyNDIzMzgyMVowgbIxCzAJBgNVBAYTAktFMRAwDgYDVQQI\n"
+  "DAdOYWlyb2JpMRAwDgYDVQQHDAdOYWlyb2JpMSQwIgYDVQQKDBtUcmlhZFdhdGNo\n"
+  "IElvVCBTZWN1cml0eSBMdGQxHjAcBgNVBAsMFUN5YmVyc2VjdXJpdHkgYW5kIElv\n"
+  "VDEPMA0GA1UEAwwGQXJub2xkMSgwJgYJKoZIhvcNAQkBFhlhcm5vbGRvY2hpZW5n\n"
+  "OTVAZ21haWwuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu93r\n"
+  "KeFiNAeM6QiRaYa/fHfs5CE/1AZ+iNjk/9WUbuG3VZ9vg7hjHpHBKFV6IJd/NWE0\n"
+  "VH1/sSR0KjCSklj1sMlXbfcf6dQkxZC5odfMoruh8jO1Vd2m4yjqlM2Jzi51+/ry\n"
+  "iLyIz+uJ7BNpOtYOZAx/3yCt4MraLX4n01HQO62rgj5VxpGeCeK7T+a8WMBhQKgU\n"
+  "HqiNXCg5glAytQK2M5n4aMj0V4Yolv/b9B6hp7lNnvGly8B1QEDv3XDb8ox99owT\n"
+  "RYAD3RBhORr7ALIJO0kPcPpJg+hNm9hBiSpAXdukrjEU5hSE3JMP07j+rllMRXwB\n"
+  "nyHMJmVsh3gdle1z/wIDAQABo1MwUTAdBgNVHQ4EFgQUqxdVSASGLy4QZO+izDz1\n"
+  "8wQRI20wHwYDVR0jBBgwFoAUqxdVSASGLy4QZO+izDz18wQRI20wDwYDVR0TAQH/\n"
+  "BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAIjhpC1HflTwk6CE26jnKtfhAopnP\n"
+  "+TXkVWU7JjgQTgwnVJSFlRRbJXY+P+Oa/XtbJSK5j56z0uFKRnn1q85K657ALIIt\n"
+  "/JX6ai9Nlsc0sHuwCG5CgFLEBaKdaQDwLeNxpzrzfCrnLIrUzRNz8xLYL8jGGprh\n"
+  "8ku7q6q8kjEbQBCjMTg9R3bxN3UdA/xkAECaSzSuarbP0aXI4nOJNLHmg2NMw6mL\n"
+  "1KFG+71YRo25reu29j5ny3qt235gzd0VzUy8kbwGODwJk6yZNYsPZ75Wl3/V1Zz9\n"
+  "Z8otF+PArm23yGkyjCnIbc+5Ow9rnRrLruk2JhA51TZkancJ7V2x2DRjBQ==\n"
   "-----END CERTIFICATE-----\n";
 
 // pin configurations
@@ -84,10 +93,20 @@ const int ldrPin = 34;
 const int trigPin = 18;
 const int echoPin = 5;
 const int pirPin = 33;
+
+// variables
 long duration, distance;
 bool motionDetected = false;
 unsigned long lastMotionTime = 0;
 const unsigned long motionCooldown = 10000;
+unsigned long otpExpiryTime = 0;
+const unsigned long OTP_VALIDITY = 300000;
+bool otpCooldown = false;               // handle spamming
+unsigned long otpCooldownTime = 60000;  // 60 seconds cooldown
+bool otpPending = false;
+String correctOtp = "";
+const char* OTP_VERIFY_TOPIC = "bank_monitoring/otpVerify";
+const char* OTP_RESPONSE_TOPIC = "bank_monitoring/otpResponse";
 
 // time settings
 const char* ntpServer = "pool.ntp.org";
@@ -100,6 +119,7 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
+HardwareSerial A9GSerial(1);  // make use of UART 1
 
 // function for connecting the mqtt broker
 void connectMQTT() {
@@ -132,6 +152,14 @@ void attemptMqttConnectionAndSubscribe() {
       } else {
         Serial.println("ERROR subscribing to bank_monitoring/led/blue");
       }
+      if (mqttClient.subscribe("bank_monitoring/otpRequest")) {
+        Serial.println("Subscribed to bank_monitoring/otpRequest");
+      }
+      if (mqttClient.subscribe("bank_monitoring/otpVerify")) {
+        Serial.println("Subscribed to bank_monitoring/otpVerify");
+      } else {
+        Serial.println("ERROR subscribing to bank_monitoring/otpVerify");
+      }
     } else {
       Serial.print("MQTT connect failed, rc=");
       Serial.print(mqttClient.state());
@@ -151,7 +179,36 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("]: ");
   Serial.println(message);
 
-  // Control LEDs based on topic and message
+  Serial.print("Raw payload bytes: ");
+  for (int i = 0; i < length; i++) Serial.print((int)payload[i]);
+  Serial.println();
+
+  if (String(topic) == "bank_monitoring/otpRequest" && message == "true") {
+    if (!otpCooldown) {
+      otpCooldown = true;
+      otpExpiryTime = millis() + OTP_VALIDITY;
+      generateAndSendOTP();  // <- generate OTP AND send SMS immediately
+    } else {
+      Serial.println("OTP request ignored due to cooldown");
+    }
+  }
+
+  // --- OTP Verification ---
+  if (String(topic) == "bank_monitoring/otpVerify") {
+    if (millis() > otpExpiryTime) {
+      mqttClient.publish("bank_monitoring/otpResponse", "EXPIRED");
+      Serial.println("OTP verification attempt: EXPIRED");
+    } else if (message == correctOtp) {
+      mqttClient.publish("bank_monitoring/otpResponse", "SUCCESS");
+      Serial.println("OTP verification: SUCCESS");
+      correctOtp = "";  // reset OTP after successful verification
+    } else {
+      mqttClient.publish("bank_monitoring/otpResponse", "FAIL");
+      Serial.println("OTP verification: FAIL");
+    }
+  }
+
+  // control LEDs based on topic and message
   if (String(topic) == "bank_monitoring/led/white") {
     if (message == "ON") {
       digitalWrite(whiteLEDPin, HIGH);
@@ -272,8 +329,98 @@ String hashSensorData(String input) {
   return hashString;
 }
 
+void printA9GResponse() {
+  while (A9GSerial.available()) {
+    char c = A9GSerial.read();
+    Serial.write(c);
+  }
+}
+
+void sendSMS(String phoneNumber, String message) {
+  Serial.println("Preparing to send SMS...");
+
+  // Clear any pending data
+  while (A9GSerial.available()) {
+    A9GSerial.read();
+  }
+
+  // Set SMS to text mode (same as test)
+  A9GSerial.println("AT+CMGF=1");
+  delay(1000);
+  printA9GResponse();
+
+  // Send recipient number (same as test)
+  A9GSerial.print("AT+CMGS=\"");
+  A9GSerial.print(phoneNumber);
+  A9GSerial.println("\"");
+  delay(1000);  // Reduced delay to match working test
+  printA9GResponse();
+
+  // Send message content (same as test)
+  A9GSerial.print(message);
+  delay(500);
+
+  // Send CTRL+Z (same as test)
+  A9GSerial.write(26);
+  Serial.println("CTRL+Z sent");
+
+  // Wait for response with shorter delay (like test)
+  delay(5000);
+  printA9GResponse();
+
+  Serial.println("SMS send process completed.");
+}
+
+
+// otp generation
+String generateOTP() {
+  long otpNumber = esp_random() % 1000000;  // 0-999999
+  String otpStr = String(otpNumber);
+  while (otpStr.length() < 6) otpStr = "0" + otpStr;  // pad with zeros
+  return otpStr;
+}
+
+void generateAndSendOTP() {
+  correctOtp = generateOTP();
+  otpExpiryTime = millis() + OTP_VALIDITY;
+  otpCooldown = true;
+  Serial.println("Generated OTP: " + correctOtp);
+  sendSMS("+254795975000", "Your OTP is: " + correctOtp);
+}
+
+void checkA9GStatus() {
+  Serial.println("=== A9G Module Diagnostics ===");
+
+  // Basic AT test
+  A9GSerial.println("AT");
+  delay(2000);
+  printA9GResponse();
+
+  // Check SIM card status
+  A9GSerial.println("AT+CPIN?");
+  delay(2000);
+  printA9GResponse();
+
+  // Check network registration
+  A9GSerial.println("AT+CREG?");
+  delay(2000);
+  printA9GResponse();
+
+  // Check signal strength
+  A9GSerial.println("AT+CSQ");
+  delay(2000);
+  printA9GResponse();
+
+  // Check network operator
+  A9GSerial.println("AT+COPS?");
+  delay(2000);
+  printA9GResponse();
+
+  Serial.println("=== End Diagnostics ===");
+}
+
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // pin setup
   pinMode(blueLEDPin, OUTPUT);
@@ -298,6 +445,13 @@ void setup() {
   // --- Print free heap for debugging ---
   Serial.print("Free heap after Wi-Fi connect: ");
   Serial.println(ESP.getFreeHeap());
+
+  // initialize a9g module
+  A9GSerial.begin(115200, SERIAL_8N1, A9G_RX_PIN, A9G_TX_PIN);
+  delay(5000);  // allow module to boot
+  Serial.println("A9G module ready for SMS");
+
+  checkA9GStatus();
 
   // initialize NTP to get the current time information
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -348,6 +502,14 @@ void loop() {
     connectMQTT();
   }
   mqttClient.loop();
+
+  // reset cooldown
+  static unsigned long lastCooldownCheck = 0;
+  if (otpCooldown && millis() - lastCooldownCheck > otpCooldownTime) {
+    otpCooldown = false;
+    lastCooldownCheck = millis();
+    Serial.println("OTP cooldown reset, ready for next request");
+  }
 
   // implement non-blocking for the LED toggle
   unsigned long currentMillis = millis();
@@ -449,12 +611,12 @@ void loop() {
       display.display();
 
       // serial output
-      Serial.println("Plaintext: " + combinedPayload);
-      Serial.println("Temp: " + tempPayload + " | Encrypted: " + tempEncrypted + " | Hash: " + tempHash);
-      Serial.println("Humidity: " + humidityPayload + " | Encrypted: " + humidityEncrypted + " | Hash: " + humidityHash);
-      Serial.println("LDR: " + ldrPayload + " | Encrypted: " + ldrEncrypted + " | Hash: " + ldrHash);
-      Serial.println("Distance: " + distancePayload + " | Encrypted: " + distanceEncrypted + " | Hash: " + distanceHash);
-      Serial.println("Motion: " + motionPayload + " | Encrypted: " + motionEncrypted + " | Hash: " + motionHash);
+      //Serial.println("Plaintext: " + combinedPayload);
+      //Serial.println("Temp: " + tempPayload + " | Encrypted: " + tempEncrypted + " | Hash: " + tempHash);
+      //Serial.println("Humidity: " + humidityPayload + " | Encrypted: " + humidityEncrypted + " | Hash: " + humidityHash);
+      //Serial.println("LDR: " + ldrPayload + " | Encrypted: " + ldrEncrypted + " | Hash: " + ldrHash);
+      //Serial.println("Distance: " + distancePayload + " | Encrypted: " + distanceEncrypted + " | Hash: " + distanceHash);
+      //Serial.println("Motion: " + motionPayload + " | Encrypted: " + motionEncrypted + " | Hash: " + motionHash);
     }
     display.display();
     Serial.println("Sensor data processing and MQTT send complete.");

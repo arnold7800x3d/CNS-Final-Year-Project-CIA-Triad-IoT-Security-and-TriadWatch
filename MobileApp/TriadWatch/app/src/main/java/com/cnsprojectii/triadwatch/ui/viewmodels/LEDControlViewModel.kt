@@ -97,7 +97,7 @@ class LEDControlViewModel(application: Application) : AndroidViewModel(applicati
             isCleanSession = true // Important for command-based interactions
             try {
                 val cf: CertificateFactory = CertificateFactory.getInstance("X.509")
-                val caInput: InputStream = appContext.resources.openRawResource(R.raw.cacert) // Use your CA cert
+                val caInput: InputStream = appContext.resources.openRawResource(R.raw.deb11ca) // Use your CA cert
                 val ca: X509Certificate = caInput.use {
                     cf.generateCertificate(it) as X509Certificate
                 }
@@ -259,15 +259,32 @@ class LEDControlViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         super.onCleared()
-        Log.d("LEDControlViewModel_MQTT", "ViewModel cleared. Disconnecting MQTT client for LED VM.")
+        Log.d("LEDControlViewModel_MQTT", "ViewModel cleared. Disconnecting MQTT client.")
         try {
-            // No subscriptions to unsubscribe from in this command-sending VM
-            mqttClient?.disconnect()
-            mqttClient?.close() // Release resources
-            Log.i("LEDControlViewModel_MQTT", "MQTT client disconnected and closed for LED VM.")
-        } catch (e: MqttException) {
-            Log.e("LEDControlViewModel_MQTT", "Error during MQTT disconnect/close for LED VM", e)
+            mqttClient?.apply {
+                if (isConnected) {
+                    try {
+                        unsubscribe(arrayOf(TOPIC_LED_WHITE_COMMAND, TOPIC_LED_BLUE_COMMAND))
+                    } catch (e: MqttException) {
+                        Log.w("LEDControlViewModel_MQTT", "Unsubscribe failed", e)
+                    }
+                    try {
+                        disconnect()
+                    } catch (e: MqttException) {
+                        Log.w("LEDControlViewModel_MQTT", "Disconnect failed", e)
+                    }
+                }
+                try {
+                    close()
+                } catch (e: Exception) {
+                    Log.w("LEDControlViewModel_MQTT", "Close failed", e)
+                }
+            }
+            Log.i("LEDControlViewModel_MQTT", "MQTT client disconnected and closed.")
+        } catch (e: Exception) {
+            Log.e("LEDControlViewModel_MQTT", "Error during MQTT cleanup", e)
+        } finally {
+            mqttClient = null
         }
-        mqttClient = null
     }
 }

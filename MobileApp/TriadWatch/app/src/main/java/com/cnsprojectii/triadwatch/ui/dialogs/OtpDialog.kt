@@ -1,64 +1,167 @@
 package com.cnsprojectii.triadwatch.ui.dialogs
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.cnsprojectii.triadwatch.ui.components.OtpInputField
+import com.cnsprojectii.triadwatch.viewmodels.OtpViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun OtpDialog(
+    otpViewModel: OtpViewModel,
     showDialog: Boolean,
-    onDismissRequest: () -> Unit,
-    onOtpSubmit: (String) -> Unit
+    onDismissRequest: () -> Unit
 ) {
-    var otpValue by remember { mutableStateOf("") }
-    val otpLength = 6
+    if (!showDialog) return
 
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text("Enter OTP") },
-            text = {
-                Column {
-                    Text("A 6-digit code has been sent to your device.") // Or email/phone
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OtpInputField(
-                        otpLength = otpLength,
-                        onOtpChanged = { otp ->
-                            otpValue = otp
+    val scope = rememberCoroutineScope()
+    val otpState by otpViewModel.uiState.collectAsState()
+
+    // 6-digit OTP state
+    var otpDigits by remember { mutableStateOf(List(6) { "" }) }
+
+    // FocusRequesters for auto-focus
+    val focusRequesters = List(6) { FocusRequester() }
+
+    // Track if the user has submitted OTP
+    var hasSubmittedOtp by remember { mutableStateOf(false) }
+
+    val navigateToHome = otpState.navigateToHome
+
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text("Enter OTP") },
+        text = {
+            Column {
+                // OTP Input Row
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        otpDigits.forEachIndexed { index, value ->
+                            TextField(
+                                value = value,
+                                onValueChange = { newValue ->
+                                    val updatedList = otpDigits.toMutableList()
+
+                                    if (newValue.length > otpDigits[index].length) {
+                                        // Typing a digit
+                                        if (newValue.all { it.isDigit() }) {
+                                            updatedList[index] = newValue.last().toString()
+                                            otpDigits = updatedList
+                                            if (index < 5) {
+                                                scope.launch {
+                                                    delay(50)
+                                                    focusRequesters[index + 1].requestFocus()
+                                                }
+                                            }
+                                        }
+                                    } else if (newValue.isEmpty()) {
+                                        // Backspace
+                                        updatedList[index] = ""
+                                        otpDigits = updatedList
+                                        if (index > 0) {
+                                            scope.launch {
+                                                delay(50)
+                                                focusRequesters[index - 1].requestFocus()
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .width(40.dp)
+                                    .height(56.dp)
+                                    .focusRequester(focusRequesters[index]),
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // OTP request feedback
+                otpState.otpRequestSuccessMessage?.let {
+                    Text(it, color = Color.Green)
+                }
+                otpState.otpRequestError?.let {
+                    Text(it, color = Color.Red)
+                }
+                otpState.otpVerificationError?.let {
+                    Text(it, color = Color.Red)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val otpString = otpDigits.joinToString("")
+                    hasSubmittedOtp = true
+                    otpViewModel.verifyOtp(otpString)
+                },
+                enabled = otpDigits.all { it.isNotEmpty() } && !otpState.isVerifyingOtp
+            ) {
+                if (otpState.isVerifyingOtp) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
                     )
-                    // Optional: Add an error message display here
+                } else {
+                    Text("Verify")
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (otpValue.length == otpLength) {
-                            onOtpSubmit(otpValue)
-                        }
-                        // Else, you might want to show an error message
-                    },
-                    enabled = otpValue.length == otpLength // Enable button only when OTP is full
-                ) {
-                    Text("Submit")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { otpViewModel.requestOTP() }) {
+                    Text("Request OTP")
                 }
-            },
-            dismissButton = {
+                Spacer(modifier = Modifier.width(8.dp))
                 TextButton(onClick = onDismissRequest) {
                     Text("Cancel")
                 }
-            },
-            modifier = Modifier.padding(16.dp)
-        )
+            }
+        }
+    )
+
+    // Trigger success callback if OTP verified
+    LaunchedEffect(otpState.isVerifyingOtp, otpState.otpVerificationError, otpState.otpRequestSuccessMessage) {
+        if (hasSubmittedOtp && !otpState.isVerifyingOtp && otpState.otpVerificationError == null) {
+            // OTP verified successfully
+            onDismissRequest() // Hide dialog
+        }
+    }
+
+    LaunchedEffect(navigateToHome) {
+        if (navigateToHome) {
+            // Call navigation lambda or NavController navigate
+            onDismissRequest() // Dismiss OTP dialog
+            // Navigate to Home screen
+            // Example if using NavController:
+            // navController.navigate("home") {
+            //     popUpTo("otp") { inclusive = true } // remove OTP screen from back stack
+            // }
+
+            // Reset the navigation flag in ViewModel
+            otpViewModel.clearNavigationFlag()
+        }
     }
 }
-
-

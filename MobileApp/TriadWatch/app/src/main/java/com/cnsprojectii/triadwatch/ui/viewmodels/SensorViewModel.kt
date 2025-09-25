@@ -111,7 +111,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
             isCleanSession = true
             try {
                 val cf = java.security.cert.CertificateFactory.getInstance("X.509")
-                val caInput: java.io.InputStream = appContext.resources.openRawResource(R.raw.cacert)
+                val caInput: java.io.InputStream = appContext.resources.openRawResource(R.raw.deb11ca)
                 val ca: java.security.cert.X509Certificate = caInput.use {
                     cf.generateCertificate(it) as java.security.cert.X509Certificate
                 }
@@ -332,15 +332,34 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
     override fun onCleared() {
         super.onCleared()
         Log.d("SensorViewModel_MQTT", "ViewModel cleared. Disconnecting MQTT client.")
+
         try {
-            // Unsubscribe from all topics
-            mqttClient?.unsubscribe(arrayOf(TOPIC_TEMPERATURE, TOPIC_HUMIDITY, TOPIC_LDR, TOPIC_DISTANCE, TOPIC_MOTION))
-            mqttClient?.disconnect()
-            mqttClient?.close()
-            Log.i("SensorViewModel_MQTT", "MQTT client disconnected and closed.")
-        } catch (e: MqttException) {
-            Log.e("SensorViewModel_MQTT", "Error during MQTT disconnect/close", e)
+            mqttClient?.let { client ->
+                // Safely unsubscribe only if connected
+                if (client.isConnected) {
+                    try {
+                        client.unsubscribe(
+                            arrayOf(TOPIC_TEMPERATURE, TOPIC_HUMIDITY, TOPIC_LDR, TOPIC_DISTANCE, TOPIC_MOTION)
+                        )
+                        client.disconnect()
+                    } catch (e: MqttException) {
+                        Log.w("SensorViewModel_MQTT", "Error during unsubscribe/disconnect: ${e.message}")
+                    }
+                }
+
+                try {
+                    client.close()
+                    Log.i("SensorViewModel_MQTT", "MQTT client disconnected and closed.")
+                } catch (e: IllegalArgumentException) {
+                    // This is the crash you saw
+                    Log.w("SensorViewModel_MQTT", "MQTT client already closed: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("SensorViewModel_MQTT", "Unexpected error during MQTT cleanup", e)
+        } finally {
+            mqttClient = null
         }
-        mqttClient = null
     }
+
 }
