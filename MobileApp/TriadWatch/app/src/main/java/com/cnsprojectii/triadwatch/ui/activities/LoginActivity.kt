@@ -8,25 +8,16 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels // Import for viewModels delegate
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,21 +33,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-// Removed ViewModelProvider import as viewModels delegate is used
-import com.cnsprojectii.triadwatch.ui.activities.HomeActivity
-import com.cnsprojectii.triadwatch.ui.dialogs.OtpDialog // Your existing OtpDialog
-import com.cnsprojectii.triadwatch.viewmodels.OtpViewModel // Your OtpViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.cnsprojectii.triadwatch.ui.dialogs.OtpDialog
+import com.cnsprojectii.triadwatch.ui.dialogs.ResetPasswordDialog
+import com.cnsprojectii.triadwatch.ui.viewmodels.OtpViewModel
+import com.cnsprojectii.triadwatch.ui.viewmodels.ResetPasswordViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 
 class LoginActivity : ComponentActivity() {
 
     private lateinit var auth: FirebaseAuth
-    private var showOtpDialog by mutableStateOf(true) // Start with OTP dialog if needed for initial app open
+
+    // Persistent state variables
+    private var showOtpDialog by mutableStateOf(false)
     private var otpCancelledByUser by mutableStateOf(false)
     private var navigationToHomeAttempted by mutableStateOf(false)
+    private var otpRequested by mutableStateOf(false)
 
     private val otpViewModel: OtpViewModel by viewModels()
 
@@ -65,33 +59,32 @@ class LoginActivity : ComponentActivity() {
         enableEdgeToEdge()
         auth = Firebase.auth
 
-        // If there's no current user when the activity starts, 
-        // and you want to go directly to login instead of OTP first, 
-        // you might adjust initial showOtpDialog state here.
-        // For now, it defaults to true, meaning OTP dialog appears first.
-        // If a user is already signed in (app restart), OTP will show, then home.
-        // If no user, OTP shows, then on cancel/fail -> login.
+        // Only show OTP if explicitly requested from RegisterActivity
+        val showOtpFromRegister = intent.getBooleanExtra("SHOW_OTP_DIALOG", false)
+        showOtpDialog = showOtpFromRegister
 
         setContent {
             if (showOtpDialog) {
                 OtpDialog(
                     otpViewModel = otpViewModel,
-                    showDialog = true,
+                    showDialog = showOtpDialog,
                     onDismissRequest = {
-                        Log.d(TAG, "OtpDialog dismissed.")
-                        val wasOtpFlowSuccessfulAndReadyToNavigate = otpViewModel.uiState.value.navigateToHome
-                        
+                        val wasOtpFlowSuccessful = otpViewModel.uiState.value.navigateToHome
+                        otpCancelledByUser = !wasOtpFlowSuccessful
                         showOtpDialog = false
-
-                        if (wasOtpFlowSuccessfulAndReadyToNavigate) {
-                            Log.d(TAG, "OtpDialog dismissed: Flow indicates navigation intent from ViewModel.")
-                            otpCancelledByUser = false
-                        } else {
-                            Log.d(TAG, "OtpDialog dismissed: Flow indicates cancellation or simple dismiss.")
-                            otpCancelledByUser = true
-                        }
+                        otpRequested = false
+                        Log.d(TAG, "OTP dismissed, success? $wasOtpFlowSuccessful")
                     }
                 )
+
+                // Request OTP only once per dialog appearance
+                LaunchedEffect(showOtpDialog) {
+                    if (showOtpDialog && !otpRequested) {
+                        otpViewModel.requestOTP()
+                        otpRequested = true
+                    }
+                }
+
             } else {
                 PostOtpContentDisplayer()
             }
@@ -102,114 +95,71 @@ class LoginActivity : ComponentActivity() {
     private fun PostOtpContentDisplayer() {
         val currentUser = auth.currentUser
 
-        // Corrected LaunchedEffect keys
         LaunchedEffect(currentUser, navigationToHomeAttempted, showOtpDialog, otpCancelledByUser) {
             if (!showOtpDialog && !otpCancelledByUser && currentUser != null && !navigationToHomeAttempted) {
-                Log.d(TAG, "PostOtpContentDisplayer: User '${currentUser.email}' signed in, OTP flow complete (not cancelled). Navigating to HomeActivity.")
+                Log.d(TAG, "User '${currentUser.email}' signed in. Navigating to HomeActivity.")
                 navigationToHomeAttempted = true
                 navigateToHomeActivity()
             }
         }
 
         if (otpCancelledByUser || (currentUser == null && !showOtpDialog)) {
-            val reason = if (otpCancelledByUser) "OTP was cancelled by user or OTP required after login."
-                         else if (!showOtpDialog && currentUser == null) "No user session and OTP process done/skipped."
-                         else "Defaulting to login form."
-            Log.d(TAG, "PostOtpContentDisplayer: $reason Displaying LoginForm.")
             LoginForm(onLogin = { email, password ->
-                otpCancelledByUser = false // Reset for the new login->OTP attempt
-                navigationToHomeAttempted = false // Reset for the new login->OTP attempt
+                otpCancelledByUser = false
+                navigationToHomeAttempted = false
                 loginExistingUser(email, password)
             })
-        } else if (currentUser != null && !showOtpDialog) { // Implies !otpCancelledByUser
-            Log.d(TAG, "PostOtpContentDisplayer: User '${currentUser.email}' signed in, OTP flow complete. Showing loading before navigation.")
+        } else if (currentUser != null && !showOtpDialog) {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(8.dp))
                 Text("Loading user session...")
             }
         }
     }
 
-    public override fun onStart() {
+    override fun onStart() {
         super.onStart()
-        if (showOtpDialog) {
-            Log.d(TAG, "onStart: OTP dialog is expected to be visible.")
-            return
-        }
-        if (otpCancelledByUser) {
-            Log.d(TAG, "onStart: OTP was cancelled. Login form should be visible.")
-            return
-        }
-        
-        val currentUser = auth.currentUser
-        if (currentUser != null && !navigationToHomeAttempted) {
-            Log.d(TAG, "onStart: User '${currentUser.email}' signed in, OTP not cancelled, dialog not showing. PostOtpContentDisplayer should handle navigation.")
-        } else if (currentUser == null) {
-            Log.d(TAG, "onStart: No user signed in, OTP not cancelled, dialog not showing. Login form should be visible.")
-        }
+        // Prevent showing OTP again on lifecycle restart
+        if (showOtpDialog || otpCancelledByUser) return
     }
 
     private fun loginExistingUser(email: String, password: String) {
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
-                    Log.d(TAG, "signInWithEmail:success. User credentials valid. Triggering OTP dialog.")
-                    // Credentials are correct. Firebase currentUser is now updated.
-                    // Reset flags and show OTP dialog. PostOtpContentDisplayer's onLogin already reset them,
-                    // but being explicit here for clarity or if called from elsewhere.
+                    Log.d(TAG, "signInWithEmail:success. Triggering OTP dialog.")
                     otpCancelledByUser = false
                     navigationToHomeAttempted = false
-                    showOtpDialog = true // <--- This is the key change to force OTP after login
+                    otpRequested = false
+                    showOtpDialog = true
                 } else {
                     Log.w(TAG, "signInWithEmail:failure", task.exception)
                     Toast.makeText(
                         baseContext, "Authentication failed: ${task.exception?.message}",
                         Toast.LENGTH_LONG,
                     ).show()
-                    // Ensure flags are set so user stays on login form and doesn't accidentally navigate
                     navigationToHomeAttempted = false
-                    otpCancelledByUser = true // Optional: treat login failure like an OTP cancellation to ensure login form stays
+                    otpCancelledByUser = true
                 }
             }
     }
 
-    // updateUI is no longer called from loginExistingUser's success path.
-    // If it were called for login failure, it would set navigationToHomeAttempted = false.
-    // The loginExistingUser failure case now handles this directly.
-    // Consider if updateUI is still needed or if its logic should be refactored.
-    /*
-    private fun updateUI(user: FirebaseUser?) {
-        if (user != null) {
-            // This path should now be handled after OTP verification
-            Log.d(TAG, "updateUI: User available. This should ideally be post-OTP.")
-            if (!isFinishing && !isChangingConfigurations() && !navigationToHomeAttempted && !otpCancelledByUser && !showOtpDialog) {
-                navigationToHomeAttempted = true
-                navigateToHomeActivity()
-            }
-        } else {
-            Log.d(TAG, "updateUI: User is null. Resetting navigation attempt flag.")
-            navigationToHomeAttempted = false
-        }
-    }
-    */
-
     private fun navigateToHomeActivity() {
-        if (isFinishing || isChangingConfigurations) {
-            Log.d(TAG, "navigateToHomeActivity: Attempted to navigate while finishing or changing config. Aborting.")
-            return
-        }
-        Log.d(TAG, "Navigating to HomeActivity and finishing LoginActivity.")
-        val intent = Intent(this, HomeActivity::class.java)
-        startActivity(intent)
+        if (isFinishing || isChangingConfigurations) return
+        Log.d(TAG, "Navigating to HomeActivity.")
+        startActivity(Intent(this, HomeActivity::class.java))
         finish()
     }
 }
 
-// LoginForm and other composables remain unchanged from your previous version.
+// Composables for LoginForm UI
 
 @Composable
 fun LoginWelcomeText() {
@@ -227,8 +177,7 @@ fun LoginWelcomeText() {
 @Composable
 fun LoginEmailInput(modifier: Modifier = Modifier, email: String, onEmailChange: (String) -> Unit) {
     TextField(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp)),
+        modifier = modifier.clip(RoundedCornerShape(8.dp)),
         value = email,
         onValueChange = onEmailChange,
         label = { Text("Email Address") }
@@ -238,8 +187,7 @@ fun LoginEmailInput(modifier: Modifier = Modifier, email: String, onEmailChange:
 @Composable
 fun LoginPasswordInput(modifier: Modifier = Modifier, password: String, onPasswordChange: (String) -> Unit) {
     TextField(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp)),
+        modifier = modifier.clip(RoundedCornerShape(8.dp)),
         value = password,
         onValueChange = onPasswordChange,
         label = { Text("Password") },
@@ -256,32 +204,24 @@ fun LoginButton(onLoginClick: () -> Unit) {
 }
 
 @Composable
-fun RegisterAndResetLinks() {
-    // val context = LocalContext.current // Context not used here
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(buildAnnotatedString {
-            append("Don't have an account? ")
-            withStyle(SpanStyle(color = Color.Blue)) { 
-                append("Register here")
-            }
-        })
-
-        Text(buildAnnotatedString {
-            append("Forgot your password? ")
-            withStyle(SpanStyle(color = Color.Blue)) {
-                append("Reset here")
-            }
-        })
-    }
-}
-
-@Composable
 fun LoginForm(onLogin: (String, String) -> Unit) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+
+    var showResetPasswordDialog by remember { mutableStateOf(false) }
+    val resetPasswordViewModel: ResetPasswordViewModel = viewModel()
     val context = LocalContext.current
+
+    if (showResetPasswordDialog) {
+        ResetPasswordDialog(
+            showDialog = true,
+            onDismissRequest = {
+                showResetPasswordDialog = false
+                resetPasswordViewModel.dismissDialog()
+            },
+            resetPasswordViewModel = resetPasswordViewModel
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -301,10 +241,47 @@ fun LoginForm(onLogin: (String, String) -> Unit) {
                 onLogin(email, password)
             } else {
                 Log.w(TAG, "Email or password is blank")
-                Toast.makeText(context, "Email and password cannot be blank.", Toast.LENGTH_SHORT).show()
             }
         })
         Spacer(modifier = Modifier.height(16.dp))
-        RegisterAndResetLinks()
+
+        // Links for Register & Reset Password
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val registerString = buildAnnotatedString {
+                append("Don't have an account? ")
+                pushStringAnnotation(tag = "REGISTER", annotation = "register")
+                withStyle(style = SpanStyle(color = Color.Blue)) {
+                    append("Register here")
+                }
+                pop()
+            }
+            androidx.compose.foundation.text.ClickableText(
+                text = registerString,
+                onClick = { offset ->
+                    registerString.getStringAnnotations(tag = "REGISTER", start = offset, end = offset)
+                        .firstOrNull()?.let {
+                            context.startActivity(Intent(context, RegisterActivity::class.java))
+                        }
+                }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            val resetString = buildAnnotatedString {
+                append("Forgot your password? ")
+                pushStringAnnotation(tag = "RESET", annotation = "reset")
+                withStyle(style = SpanStyle(color = Color.Blue)) {
+                    append("Reset here")
+                }
+                pop()
+            }
+            androidx.compose.foundation.text.ClickableText(
+                text = resetString,
+                onClick = { offset ->
+                    resetString.getStringAnnotations(tag = "RESET", start = offset, end = offset)
+                        .firstOrNull()?.let {
+                            showResetPasswordDialog = true
+                        }
+                }
+            )
+        }
     }
 }

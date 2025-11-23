@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.cnsprojectii.triadwatch.viewmodels.OtpViewModel
+import com.cnsprojectii.triadwatch.ui.viewmodels.OtpViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -84,7 +84,7 @@ fun OtpDialog(
                                     }
                                 },
                                 modifier = Modifier
-                                    .width(40.dp)
+                                    .width(42.dp)
                                     .height(56.dp)
                                     .focusRequester(focusRequesters[index]),
                                 singleLine = true,
@@ -130,9 +130,24 @@ fun OtpDialog(
             }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = { otpViewModel.requestOTP() }) {
-                    Text("Request OTP")
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = { otpViewModel.requestOTP() },
+                    enabled = !otpState.isRequestingOtp // Disable button while requesting
+                ) {
+                    if (otpState.isRequestingOtp) {
+                         CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sending...")
+                    } else {
+                        Text("Request OTP")
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 TextButton(onClick = onDismissRequest) {
@@ -141,7 +156,7 @@ fun OtpDialog(
             }
         }
     )
-
+/*
     // Trigger success callback if OTP verified
     LaunchedEffect(otpState.isVerifyingOtp, otpState.otpVerificationError, otpState.otpRequestSuccessMessage) {
         if (hasSubmittedOtp && !otpState.isVerifyingOtp && otpState.otpVerificationError == null) {
@@ -149,7 +164,7 @@ fun OtpDialog(
             onDismissRequest() // Hide dialog
         }
     }
-
+*/
     LaunchedEffect(navigateToHome) {
         if (navigateToHome) {
             // Call navigation lambda or NavController navigate

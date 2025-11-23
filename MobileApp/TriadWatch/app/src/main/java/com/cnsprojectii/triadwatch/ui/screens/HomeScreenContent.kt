@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,7 +49,7 @@ fun HomeScreenContent(userEmail: String?) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 64.dp),
+            .padding(top = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
@@ -257,9 +258,20 @@ fun HomeScreenContent(userEmail: String?) {
                 sensorReadingsState.isMotionVerified &&
                 sensorReadingsState.statusMessage == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
         )
+        // Button to retry MQTT connection if there is an error/status message
+        if (sensorReadingsState.statusMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    sensorViewModel.retryConnection()
+                    Toast.makeText(context, "Retrying connection...", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("Retry Connection")
+            }
+        }
     }
 }
-
 
 @Composable
 fun LargeRoundedBox(
@@ -361,7 +373,7 @@ fun DistanceContent(uiState: SensorReadingsUiState) { // UPDATED to accept uiSta
                 !uiState.distance.contains("Failed", ignoreCase = true) &&
                 !uiState.distance.contains("N/A")
             )
-                Color.Black // Example color
+                Color.Green // Example color
             else
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )

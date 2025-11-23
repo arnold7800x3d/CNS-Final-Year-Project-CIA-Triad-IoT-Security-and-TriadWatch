@@ -17,7 +17,7 @@ fun formatTimestampForDisplay(timestampSeconds: Long): String {
     if (timestampSeconds == 0L) return "N/A"
     return try {
         val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        // Firebase timestamp is often in seconds, convert to milliseconds for Date
+       
         val date = java.util.Date(timestampSeconds * 1000)
         sdf.format(date)
     } catch (e: Exception) {

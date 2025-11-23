@@ -1,74 +1,85 @@
 package com.cnsprojectii.triadwatch.ui.screens
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import android.graphics.Color
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.cnsprojectii.triadwatch.ui.components.SensorLineChart
+// --- IMPORTANT: CORRECTED IMPORT ---
+import com.cnsprojectii.triadwatch.ui.viewmodels.SensorHistoryViewModel
 
-// UI for the History screen
 @Composable
-fun HistoryScreenContent() {
+fun HistoryScreenContent(
+    modifier: Modifier = Modifier,
+    // --- IMPORTANT: USE THE CORRECT VIEWMODEL ---
+    historyViewModel: SensorHistoryViewModel = viewModel()
+) {
+    // Collect the history data streams from the correct ViewModel
+    val temperatureData by historyViewModel.temperatureHistory.collectAsState()
+    val humidityData by historyViewModel.humidityHistory.collectAsState()
+    val distanceData by historyViewModel.distanceHistory.collectAsState()
+    val ldrData by historyViewModel.ldrHistory.collectAsState()
+
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 30.dp)
-            .padding(16.dp)
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // History screen heading
         Text(
-            text = "History",
+            text = "Live Sensor Data",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier
-                .padding(bottom = 24.dp)
-                .align(Alignment.Start)
+            modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // Time series placeholder
-        GraphPlaceholder(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp)
+        ChartSection(
+            title = "Temperature (°C)",
+            dataPoints = temperatureData,
+            color = Color.RED
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        ChartSection(
+            title = "Humidity (%)",
+            dataPoints = humidityData,
+            color = Color.BLUE
+        )
 
-        Text(
-            text = "Graph data controls or summary here",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ChartSection(
+            title = "Distance (cm)",
+            dataPoints = distanceData,
+            color = Color.GREEN
+        )
+
+        ChartSection(
+            title = "Light Intensity (LDR)",
+            dataPoints = ldrData,
+            color = Color.parseColor("#FFA500") // Orange
         )
     }
 }
 
 @Composable
-fun GraphPlaceholder(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                MaterialTheme.shapes.medium
-            )
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "Time Series Graph Area",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+private fun ChartSection(title: String, dataPoints: List<Pair<Float, Float>>, color: Int) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(text = title, style = MaterialTheme.typography.titleLarge)
+        Spacer(modifier = Modifier.height(8.dp))
+        SensorLineChart(
+            dataPoints = dataPoints,
+            colorInt = color,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
         )
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }

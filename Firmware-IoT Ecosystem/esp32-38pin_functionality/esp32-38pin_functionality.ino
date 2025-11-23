@@ -1,16 +1,3 @@
-/*
-  this is the source code for the esp32 38-pin functionality of the bank monitoring system. it features:
-    - esp32 38pin               - microcontroller
-    - dht11 module              - temperature and humidity readings
-    - OLED display              - display
-    - LED                       - status indicators and real time control
-    - PIR                       - detect motion
-    - buzzer                    - alarm indicator
-    - light dependent resistor  - detect light based tampering
-    - ultrasonic sensor         - detect approaching objects
-    - A9G module                - gsm functionality
-*/
-
 // import necessary libraries
 #include "DHT.h"  // DHT11 library
 #include <Wire.h>
@@ -20,8 +7,11 @@
 #include "mbedtls/sha256.h"    // SHA-256 encryption
 #include "arduino_base64.hpp"  // base64 encoding library
 #include "secrets.h"           // file containing WiFi credentials
+//#include <BluetoothSerial.h>
+#include <SPIFFS.h>
+#include "FS.h"
 
-// WiFi transmission and Firebase
+// wi-fi transmission
 #include <WiFi.h>
 #include "time.h"
 
@@ -46,18 +36,13 @@
 #define OLED_RESET -1
 #define SCREEN_ADDRESS 0x3C
 
-// LED command paths
-#define BLUE_LED_DB_PATH "/triadwatch/commands/blueLED"
-#define WHITE_LED_DB_PATH "triadwatch/commands/whiteLED"
-
 // mqtt server settings
 const char* mqttServer = SECRET_MQTT_SERVER;
 const int mqttPort = 8883;
 const char* mqttUser = SECRET_MQTT_USER;
 const char* mqttPass = SECRET_MQTT_PASSWORD;
-// const char* mqttTopic = SECRET_MQTT_TOPIC;
 
-// root ca certificate (on debian 13 vm)
+// root ca certificate (on debian 11 vm)
 const char* caCert =
   "-----BEGIN CERTIFICATE-----\n"
   "MIIERzCCAy+gAwIBAgIUI+6cAOfTb4RCOpQIRxCFkxuwWHUwDQYJKoZIhvcNAQEL\n"
@@ -107,12 +92,8 @@ bool otpPending = false;
 String correctOtp = "";
 const char* OTP_VERIFY_TOPIC = "bank_monitoring/otpVerify";
 const char* OTP_RESPONSE_TOPIC = "bank_monitoring/otpResponse";
-
-// time settings
-const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3 * 3600;  // (GMT + 3)
-const int daylightOffset_sec = 0;
-time_t bootTime;  // store the actual UTC time at boot
+unsigned long wifiTimeout = 10000;  // 10 seconds
+unsigned long mqttTimeout = 10000;  // 10 seconds
 
 // objects
 DHT dht(DHTPIN, DHTTYPE);
@@ -120,50 +101,51 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 HardwareSerial A9GSerial(1);  // make use of UART 1
+//BluetoothSerial SerialBT;
 
 // function for connecting the mqtt broker
 void connectMQTT() {
   secureClient.setCACert(caCert);
 
-  if (!mqttClient.connected()) {  // Check again before entering while loop
-    Serial.println("MQTT disconnected, attempting reconnect from connectMQTT().");
-    attemptMqttConnectionAndSubscribe();  // Reuse the helper
-    if (!mqttClient.connected()) {        // If still not connected after one attempt
-      Serial.println("Reconnect attempt failed. Will retry in loop(). Delaying...");
-      delay(5000);  // Add a delay before next attempt from loop()
+  if (!mqttClient.connected()) {  // check again before entering while loop
+    Serial.println(F("MQTT disconnected, attempting reconnect from connectMQTT()."));
+    attemptMqttConnectionAndSubscribe();  // reuse the helper
+    if (!mqttClient.connected()) {        // if still not connected after one attempt
+      Serial.println(F("Reconnect attempt failed. Will retry in loop(). Delaying..."));
+      delay(5000);  // add a delay before next attempt from loop()
     }
   }
 }
 
 void attemptMqttConnectionAndSubscribe() {
-  if (!mqttClient.connected()) {  // Only attempt if not already connected
-    Serial.print("Attempting MQTT connection (and subscription)...");
-    String clientId = "ESP32Client-" + String(WiFi.macAddress());  // More unique client ID
+  if (!mqttClient.connected()) {  // only attempt if not already connected
+    Serial.print(F("Attempting MQTT connection (and subscription)..."));
+    String clientId = "ESP32Client-" + String(WiFi.macAddress());  // more unique client ID
     if (mqttClient.connect(clientId.c_str(), mqttUser, mqttPass)) {
-      Serial.println("MQTT Connected!");
-      // Subscribe to topics
-      if (mqttClient.subscribe("bank_monitoring/led/white")) {  // Check subscription success
-        Serial.println("Subscribed to bank_monitoring/led/white");
+      Serial.println(F("MQTT Connected!"));
+      // subscribe to topics
+      if (mqttClient.subscribe("bank_monitoring/led/white")) {  // check subscription success
+        Serial.println(F("Subscribed to bank_monitoring/led/white"));
       } else {
-        Serial.println("ERROR subscribing to bank_monitoring/led/white");
+        Serial.println(F("ERROR subscribing to bank_monitoring/led/white"));
       }
       if (mqttClient.subscribe("bank_monitoring/led/blue")) {
-        Serial.println("Subscribed to bank_monitoring/led/blue");
+        Serial.println(F("Subscribed to bank_monitoring/led/blue"));
       } else {
-        Serial.println("ERROR subscribing to bank_monitoring/led/blue");
+        Serial.println(F("ERROR subscribing to bank_monitoring/led/blue"));
       }
       if (mqttClient.subscribe("bank_monitoring/otpRequest")) {
-        Serial.println("Subscribed to bank_monitoring/otpRequest");
+        Serial.println(F("Subscribed to bank_monitoring/otpRequest"));
       }
       if (mqttClient.subscribe("bank_monitoring/otpVerify")) {
-        Serial.println("Subscribed to bank_monitoring/otpVerify");
+        Serial.println(F("Subscribed to bank_monitoring/otpVerify"));
       } else {
-        Serial.println("ERROR subscribing to bank_monitoring/otpVerify");
+        Serial.println(F("ERROR subscribing to bank_monitoring/otpVerify"));
       }
     } else {
-      Serial.print("MQTT connect failed, rc=");
+      Serial.print(F("MQTT connect failed, rc="));
       Serial.print(mqttClient.state());
-      Serial.println(" Will retry in loop()...");
+      Serial.println(F(" Will retry in loop()..."));
     }
   }
 }
@@ -174,12 +156,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     message += (char)payload[i];
   }
 
-  Serial.print("Message arrived [");
+  Serial.print(F("Message arrived ["));
   Serial.print(topic);
-  Serial.print("]: ");
+  Serial.print(F("]: "));
   Serial.println(message);
 
-  Serial.print("Raw payload bytes: ");
+  Serial.print(F("Raw payload bytes: "));
   for (int i = 0; i < length; i++) Serial.print((int)payload[i]);
   Serial.println();
 
@@ -187,24 +169,24 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     if (!otpCooldown) {
       otpCooldown = true;
       otpExpiryTime = millis() + OTP_VALIDITY;
-      generateAndSendOTP();  // <- generate OTP AND send SMS immediately
+      generateAndSendOTP();  // generate OTP AND send SMS immediately
     } else {
-      Serial.println("OTP request ignored due to cooldown");
+      Serial.println(F("OTP request ignored due to cooldown"));
     }
   }
 
-  // --- OTP Verification ---
+  // otp verification
   if (String(topic) == "bank_monitoring/otpVerify") {
     if (millis() > otpExpiryTime) {
       mqttClient.publish("bank_monitoring/otpResponse", "EXPIRED");
       Serial.println("OTP verification attempt: EXPIRED");
     } else if (message == correctOtp) {
       mqttClient.publish("bank_monitoring/otpResponse", "SUCCESS");
-      Serial.println("OTP verification: SUCCESS");
+      Serial.println(F("OTP verification: SUCCESS"));
       correctOtp = "";  // reset OTP after successful verification
     } else {
       mqttClient.publish("bank_monitoring/otpResponse", "FAIL");
-      Serial.println("OTP verification: FAIL");
+      Serial.println(F("OTP verification: FAIL"));
     }
   }
 
@@ -212,20 +194,20 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (String(topic) == "bank_monitoring/led/white") {
     if (message == "ON") {
       digitalWrite(whiteLEDPin, HIGH);
-      Serial.println("White LED turned ON");
+      Serial.println(F("White LED turned ON"));
     } else if (message == "OFF") {
       digitalWrite(whiteLEDPin, LOW);
-      Serial.println("White LED turned OFF");
+      Serial.println(F("White LED turned OFF"));
     }
   }
 
   if (String(topic) == "bank_monitoring/led/blue") {
     if (message == "ON") {
       digitalWrite(blueLEDPin, HIGH);
-      Serial.println("Blue LED turned ON");
+      Serial.println(F("Blue LED turned ON"));
     } else if (message == "OFF") {
       digitalWrite(blueLEDPin, LOW);
-      Serial.println("Blue LED turned OFF");
+      Serial.println(F("Blue LED turned OFF"));
     }
   }
 }
@@ -250,6 +232,20 @@ void publishSensorData(String tempEnc, String tempHash,
   mqttClient.publish("bank_monitoring/motion", motionPayload.c_str());
 }
 
+String generateSensorJSON(String tempEnc, String tempHash,
+                          String humEnc, String humHash,
+                          String ldrEnc, String ldrHash,
+                          String distEnc, String distHash,
+                          String motionEnc, String motionHash) {
+  String jsonPayload = "{";
+  jsonPayload += "\"temperature\":{\"cipher\":\"" + tempEnc + "\",\"hash\":\"" + tempHash + "\"},";
+  jsonPayload += "\"humidity\":{\"cipher\":\"" + humEnc + "\",\"hash\":\"" + humHash + "\"},";
+  jsonPayload += "\"ldr\":{\"cipher\":\"" + ldrEnc + "\",\"hash\":\"" + ldrHash + "\"},";
+  jsonPayload += "\"distance\":{\"cipher\":\"" + distEnc + "\",\"hash\":\"" + distHash + "\"},";
+  jsonPayload += "\"motion\":{\"cipher\":\"" + motionEnc + "\",\"hash\":\"" + motionHash + "\"}";
+  jsonPayload += "}";
+  return jsonPayload;
+}
 
 // 32-byte AES-256 key (developer defined)
 byte aesKey[] = {
@@ -337,38 +333,38 @@ void printA9GResponse() {
 }
 
 void sendSMS(String phoneNumber, String message) {
-  Serial.println("Preparing to send SMS...");
+  Serial.println(F("Preparing to send SMS..."));
 
-  // Clear any pending data
+  // clear any pending data
   while (A9GSerial.available()) {
     A9GSerial.read();
   }
 
-  // Set SMS to text mode (same as test)
+  // set sms to text mode
   A9GSerial.println("AT+CMGF=1");
   delay(1000);
   printA9GResponse();
 
-  // Send recipient number (same as test)
+  // send recipient number
   A9GSerial.print("AT+CMGS=\"");
   A9GSerial.print(phoneNumber);
   A9GSerial.println("\"");
-  delay(1000);  // Reduced delay to match working test
+  delay(1000);
   printA9GResponse();
 
-  // Send message content (same as test)
+  // send message content
   A9GSerial.print(message);
   delay(500);
 
-  // Send CTRL+Z (same as test)
+  // send CTRL+Z
   A9GSerial.write(26);
-  Serial.println("CTRL+Z sent");
+  Serial.println(F("CTRL+Z sent"));
 
-  // Wait for response with shorter delay (like test)
+  // wait for response with shorter delay
   delay(5000);
   printA9GResponse();
 
-  Serial.println("SMS send process completed.");
+  Serial.println(F("SMS send process completed."));
 }
 
 
@@ -388,35 +384,72 @@ void generateAndSendOTP() {
   sendSMS("+254795975000", "Your OTP is: " + correctOtp);
 }
 
-void checkA9GStatus() {
-  Serial.println("=== A9G Module Diagnostics ===");
+void connectWifi() {
+  Serial.println(F("Connecting to Wi-Fi..."));
+  WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
+  unsigned long startAttempt = millis();
 
-  // Basic AT test
-  A9GSerial.println("AT");
-  delay(2000);
-  printA9GResponse();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < wifiTimeout) {
+    delay(500);
+    Serial.print(".");
+  }
 
-  // Check SIM card status
-  A9GSerial.println("AT+CPIN?");
-  delay(2000);
-  printA9GResponse();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(F("\nWiFi connected!"));
+  } else {
+    Serial.println(F("\nWiFi connection failed — proceeding without it."));
+  }
+}
 
-  // Check network registration
-  A9GSerial.println("AT+CREG?");
-  delay(2000);
-  printA9GResponse();
+// Log unsent data to SPIFFS
+void handleUnsentData(String payload, bool viewFile = false) {
+  // Ensure SPIFFS is mounted
+  if (!SPIFFS.begin(true)) {
+    Serial.println("❌ Failed to mount SPIFFS");
+    return;
+  }
 
-  // Check signal strength
-  A9GSerial.println("AT+CSQ");
-  delay(2000);
-  printA9GResponse();
+  // Step 1: Check file size before writing
+  if (SPIFFS.exists("/unsent.txt")) {
+    File file = SPIFFS.open("/unsent.txt", FILE_READ);
+    if (file) {
+      size_t size = file.size();
+      file.close();
 
-  // Check network operator
-  A9GSerial.println("AT+COPS?");
-  delay(2000);
-  printA9GResponse();
+      // Step 2: If file too large (> 1 MB), delete it
+      if (size > 1024 * 1024) {
+        SPIFFS.remove("/unsent.txt");
+        Serial.println("⚠️ unsent.txt exceeded 1MB, deleted to free space");
+      }
+    }
+  }
 
-  Serial.println("=== End Diagnostics ===");
+  // Step 3: Append new payload
+  File file = SPIFFS.open("/unsent.txt", FILE_APPEND);
+  if (!file) {
+    Serial.println("❌ Failed to open unsent.txt for writing");
+    return;
+  }
+
+  file.println(payload);
+  file.close();
+  Serial.println("✅ Data saved to unsent.txt");
+
+  // Step 4 (optional): View file contents
+  if (viewFile) {
+    File view = SPIFFS.open("/unsent.txt", FILE_READ);
+    if (!view) {
+      Serial.println("❌ Failed to open unsent.txt for reading");
+      return;
+    }
+
+    Serial.println("📂 Contents of unsent.txt:");
+    while (view.available()) {
+      Serial.write(view.read());
+    }
+    view.close();
+    Serial.println("\n📄 End of file");
+  }
 }
 
 void setup() {
@@ -434,38 +467,25 @@ void setup() {
   pinMode(pirPin, INPUT);
 
   // connect to Wi-Fi
-  WiFi.begin(SECRET_SSID, SECRET_PASSWORD);
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("Connected!");
+  connectWifi();
 
-  // --- Print free heap for debugging ---
-  Serial.print("Free heap after Wi-Fi connect: ");
+    // Initialize SPIFFS
+  if (!SPIFFS.begin(true)) {
+    Serial.println("SPIFFS Mount Failed!");
+    return;
+  }
+
+  // print free heap for debugging
+  Serial.print(F("Free heap after Wi-Fi connect: "));
   Serial.println(ESP.getFreeHeap());
 
   // initialize a9g module
   A9GSerial.begin(115200, SERIAL_8N1, A9G_RX_PIN, A9G_TX_PIN);
   delay(5000);  // allow module to boot
-  Serial.println("A9G module ready for SMS");
+  Serial.println(F("A9G module ready for SMS"));
 
-  checkA9GStatus();
-
-  // initialize NTP to get the current time information
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  Serial.println("Fetching NTP time...");
-  struct tm timeinfo;
-  while (!getLocalTime(&timeinfo)) {
-    Serial.print(".");
-    delay(500);
-  }
-
-  // store the ESP boot time as reference
-  bootTime = time(nullptr);
-  Serial.print("Boot UTC time: ");
-  Serial.println(bootTime);
+  //SerialBT.begin("ESP32_SensorBackup");  // Bluetooth device name
+  //Serial.println(F("Bluetooth started, waiting for laptop to pair..."));
 
   // initialization of the OLED display
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -484,15 +504,15 @@ void setup() {
 
   dht.begin();  // initialize the dht11 module
 
-  // --- Initialize MQTT ---
-  Serial.println("Setting up MQTT client...");
-  secureClient.setCACert(caCert);  // set CA before connecting
+  // initialize mqtt
+  Serial.println(F("Setting up MQTT client..."));
+  secureClient.setCACert(caCert);  // set ca cert before connecting
   mqttClient.setServer(mqttServer, mqttPort);
 
   mqttClient.setCallback(mqttCallback);
   attemptMqttConnectionAndSubscribe();
 
-  // --- Print free heap after all init ---
+  // print free heap after all init
   Serial.print("Free heap after setup: ");
   Serial.println(ESP.getFreeHeap());
 }
@@ -508,7 +528,7 @@ void loop() {
   if (otpCooldown && millis() - lastCooldownCheck > otpCooldownTime) {
     otpCooldown = false;
     lastCooldownCheck = millis();
-    Serial.println("OTP cooldown reset, ready for next request");
+    Serial.println(F("OTP cooldown reset, ready for next request"));
   }
 
   // implement non-blocking for the LED toggle
@@ -516,8 +536,8 @@ void loop() {
   if (currentMillis - lastSensorRead >= SENSOR_INTERVAL) {
     lastSensorRead = currentMillis;
 
-    Serial.println("-------------------------------------");
-    Serial.println("Reading sensors and sending to MQTT broker. Timestamp (ms):");
+    Serial.println(F("-------------------------------------"));
+    Serial.println(F("Reading sensors and sending to MQTT broker. Timestamp (ms):"));
     Serial.println(currentMillis);
 
     // clear OLED and set cursor
@@ -547,23 +567,23 @@ void loop() {
     motionDetected = digitalRead(pirPin);
     String motionPayload;
 
-    // Implement cooldown to avoid spamming
+    // cooldown to avoid spamming
     if (motionDetected && (millis() - lastMotionTime > motionCooldown)) {
       motionPayload = "Detected";
       lastMotionTime = millis();
     } else if (!motionDetected) {
       motionPayload = "Not Detected";
     } else {
-      // During cooldown, keep last state
+      // during cooldown, keep last state
       motionPayload = "Not Detected";
     }
 
     unsigned long afterReadMillis = millis();
-    Serial.print("After reading sensors (ms): ");
+    Serial.print(F("After reading sensors (ms): "));
     Serial.println(afterReadMillis);
 
     if (isnan(humidity) || isnan(temperature)) {
-      Serial.println("Failed to read from DHT sensor!");
+      Serial.println(F("Failed to read from DHT sensor!"));
       display.print("DHT11 module error");
     } else {
 
@@ -588,21 +608,33 @@ void loop() {
       String motionHash = hashSensorData(motionPayload);
 
       unsigned long afterEncryptMillis = millis();
-      Serial.print("After encryption (ms): ");
+      Serial.print(F("After encryption and hashing (ms): "));
       Serial.println(afterEncryptMillis);
 
-      publishSensorData(tempEncrypted, tempHash,
-                        humidityEncrypted, humidityHash,
-                        ldrEncrypted, ldrHash,
-                        distanceEncrypted, distanceHash,
-                        motionEncrypted, motionHash);
+      String jsonPayload = generateSensorJSON(tempEncrypted, tempHash, humidityEncrypted, humidityHash, ldrEncrypted, ldrHash, distanceEncrypted, distanceHash, motionEncrypted, motionHash);
 
-      unsigned long afterMQTTMillis = millis();
-      Serial.print("After MQTT publish (ms): ");
-      Serial.println(afterMQTTMillis);
+      Serial.println("Temperature (DHT11): " + tempPayload + " | Encrypted: " + tempEncrypted + " | Temp Hash: " + tempHash);
+      Serial.println("Humidity (DHT11): " + humidityPayload + " | Encrypted: " + humidityEncrypted + " | Humidity Hash: " + humidityHash);
+      Serial.println("Distance (Ultasonic): " + distancePayload + " | Encrypted: " + distanceEncrypted + " | Distance Hash: " + distanceHash);
+      Serial.println("Resistance (LDR): " + ldrPayload + " | Encrypted: " + ldrEncrypted + " | Resistance Hash: " + ldrHash);
+      Serial.println("Motion (PIR): " + motionPayload + " | Encrypted: " + motionEncrypted + " | Motion Hash: " + motionHash);
+
+      if(WiFi.status() == WL_CONNECTED){
+        publishSensorData(tempEncrypted, tempHash,
+                          humidityEncrypted, humidityHash,
+                          ldrEncrypted, ldrHash,
+                          distanceEncrypted, distanceHash,
+                          motionEncrypted, motionHash);
+
+        unsigned long afterMQTTMillis = millis();
+        Serial.print(F("After MQTT publish (ms): "));
+        Serial.println(afterMQTTMillis);
+      } else {
+        //SerialBT.println(jsonPayload);
+        handleUnsentData(jsonPayload, true);
+      }
 
       // display on OLED
-      String combinedPayload = tempPayload + ", " + humidityPayload + ", " + ldrPayload + ", " + distancePayload;
       display.println("Temp: " + String(temperature, 1) + "C");
       display.println("Humidity: " + String(humidity, 1) + "%");
       display.println("LDR: " + String(ldrValue));
@@ -610,16 +642,9 @@ void loop() {
       display.println("Motion: " + motionPayload);
       display.display();
 
-      // serial output
-      //Serial.println("Plaintext: " + combinedPayload);
-      //Serial.println("Temp: " + tempPayload + " | Encrypted: " + tempEncrypted + " | Hash: " + tempHash);
-      //Serial.println("Humidity: " + humidityPayload + " | Encrypted: " + humidityEncrypted + " | Hash: " + humidityHash);
-      //Serial.println("LDR: " + ldrPayload + " | Encrypted: " + ldrEncrypted + " | Hash: " + ldrHash);
-      //Serial.println("Distance: " + distancePayload + " | Encrypted: " + distanceEncrypted + " | Hash: " + distanceHash);
-      //Serial.println("Motion: " + motionPayload + " | Encrypted: " + motionEncrypted + " | Hash: " + motionHash);
     }
     display.display();
-    Serial.println("Sensor data processing and MQTT send complete.");
-    Serial.println("-------------------------------------");
+    Serial.println(F("Sensor data processing and MQTT send complete."));
+    Serial.println(F("-------------------------------------"));
   }
 }

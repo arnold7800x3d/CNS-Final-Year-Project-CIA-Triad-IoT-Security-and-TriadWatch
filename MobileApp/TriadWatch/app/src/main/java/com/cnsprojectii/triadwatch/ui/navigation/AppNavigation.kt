@@ -172,28 +172,35 @@ fun ApplicationNavHost(
     }
 }
 
+// --- CORRECTED TOP APP BAR ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TriadWatchTopAppBar(modifier: Modifier = Modifier) {
+    // Use CenterAlignedTopAppBar to automatically center the title content.
     CenterAlignedTopAppBar(
+        modifier = modifier, // We remove the fixed .height() modifier
         title = {
+            // The Row will be centered as a whole by the parent TopAppBar.
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Image(
-                    modifier = Modifier
-                        .size(80.dp),
-                        //.padding(),
                     painter = painterResource(R.drawable.triadwatchlogo),
-                    contentDescription = null
+                    contentDescription = stringResource(R.string.app_name) + " Logo",
+                    modifier = Modifier
+                        .size(48.dp) // A larger, but still reasonable, size for the logo.
+                        .padding(end = 8.dp) // Add padding between the logo and the text.
                 )
                 Text(
                     text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineLarge
+                    style = MaterialTheme.typography.headlineMedium // A slightly smaller style for better balance.
                 )
             }
         },
-        modifier = modifier
-            .height(80.dp)
+        // Optional: Set colors to match your theme.
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface
+        )
     )
 }

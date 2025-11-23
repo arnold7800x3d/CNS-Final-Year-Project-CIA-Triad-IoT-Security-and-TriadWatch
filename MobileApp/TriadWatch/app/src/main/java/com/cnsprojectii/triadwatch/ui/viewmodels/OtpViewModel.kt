@@ -1,13 +1,13 @@
-package com.cnsprojectii.triadwatch.viewmodels // Or your ViewModels package
+package com.cnsprojectii.triadwatch.ui.viewmodels // Or your ViewModels package
 
 import android.app.Application // Import Application
 import android.util.Log
-import androidx.compose.animation.core.copy
 import androidx.lifecycle.AndroidViewModel // Use AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cnsprojectii.triadwatch.R // For CA cert
 import com.cnsprojectii.triadwatch.ui.state.OtpUiState // Your OtpUiState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,15 +23,15 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 
 // --- MQTT Configuration (Match your LEDControlViewModel or centralize if possible) ---
-private const val MQTT_BROKER_URL = "ssl://192.168.1.8:8883" // Keep consistent
+private const val MQTT_BROKER_URL = "ssl://192.168.100.7:8883" // Keep consistent
 private const val MQTT_CLIENT_ID_PREFIX =
     "TriadWatchAppClient_OTP_" // Unique prefix for this client
 private const val MQTT_USERNAME = "arnold" // Keep consistent
 private const val MQTT_PASSWORD = "7945"   // Keep consistent
 
 // --- MQTT Topic for OTP Request ---
-private const val TOPIC_OTP_REQUEST = "bank_monitoring/otpRequest"
-private const val TOPIC_OTP_RESPONSE = "bank_monitoring/otpResponse"
+private const val TOPIC_OTP_REQUEST = "smart_environment/otpRequest"
+private const val TOPIC_OTP_RESPONSE = "smart_environment/otpResponse"
 
 
 class OtpViewModel(application: Application) : AndroidViewModel(application) {
@@ -109,7 +109,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         // Simple delay before reconnect attempt to avoid spamming
                         launch {
-                            kotlinx.coroutines.delay(5000)
+                            delay(5000)
                             connectMqtt()
                         }
                     }
@@ -268,7 +268,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
                                 _uiState.update {
                                     it.copy(
                                         isRequestingOtp = false,
-                                        otpRequestSuccessMessage = "OTP request sent. Check your device."
+                                        otpRequestSuccessMessage = "OTP request sent. Check your email."
                                     )
                                 }
                             }
@@ -339,7 +339,7 @@ class OtpViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             mqttClient?.publish(
-                "bank_monitoring/otpVerify",
+                "smart_environment/otpVerify",
                 mqttMessage,
                 null,
                 object : IMqttActionListener {

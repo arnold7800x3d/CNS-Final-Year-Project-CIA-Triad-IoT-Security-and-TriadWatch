@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cnsprojectii.triadwatch.ui.dialogs.OtpDialog
-import com.cnsprojectii.triadwatch.viewmodels.OtpViewModel
+import com.cnsprojectii.triadwatch.ui.viewmodels.OtpViewModel
 import com.cnsprojectii.triadwatch.ui.navigation.MainApplicationScreen
 import com.cnsprojectii.triadwatch.ui.theme.TriadWatchTheme
 import com.google.firebase.FirebaseApp
@@ -121,7 +121,7 @@ fun HomeScreenWithOtpValidation(
     LaunchedEffect(otpSessionActive) {
         if (otpSessionActive) {
             // Duration of OTP session
-            val totalDuration = 60_000L // 1 min
+            val totalDuration = 600_000L // 10ban min
             val warningTime = 50_000L  // 50s -> 10s before expiry
 
             kotlinx.coroutines.delay(warningTime)

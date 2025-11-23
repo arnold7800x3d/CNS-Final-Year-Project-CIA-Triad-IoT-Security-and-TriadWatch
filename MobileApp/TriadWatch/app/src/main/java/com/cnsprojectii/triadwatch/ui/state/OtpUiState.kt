@@ -6,6 +6,6 @@ data class OtpUiState(
     val otpRequestSuccessMessage: String? = null,
     val isVerifyingOtp: Boolean = false,
     val otpVerificationError: String? = null,
-    val navigateToHome: Boolean = false
+    val navigateToHome: Boolean = false,
     // Add any other OTP related UI states, e.g., if OTP input is valid, etc.
 )

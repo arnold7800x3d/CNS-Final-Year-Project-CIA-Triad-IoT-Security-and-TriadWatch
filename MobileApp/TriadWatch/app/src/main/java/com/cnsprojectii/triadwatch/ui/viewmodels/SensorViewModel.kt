@@ -13,22 +13,23 @@ import org.eclipse.paho.client.mqttv3.*
 import org.json.JSONObject
 import javax.crypto.SecretKey
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.database.FirebaseDatabase
 //import androidx.preference.contains
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.text.replace
 
 // MQTT Configuration
-private const val MQTT_BROKER_URL = "ssl://192.168.1.8:8883"
+private const val MQTT_BROKER_URL = "ssl://192.168.100.7:8883"
 private const val MQTT_CLIENT_ID_PREFIX = "TriadWatchAppClient"
 private const val MQTT_USERNAME = "arnold"
 private const val MQTT_PASSWORD = "7945"
 
-private const val TOPIC_TEMPERATURE = "bank_monitoring/temperature"
-private const val TOPIC_HUMIDITY = "bank_monitoring/humidity"
-private const val TOPIC_LDR = "bank_monitoring/ldr" // New LDR topic
-private const val TOPIC_DISTANCE = "bank_monitoring/distance" // New Distance topic
-private const val TOPIC_MOTION = "bank_monitoring/motion"
+private const val TOPIC_TEMPERATURE = "smart_environment/temperature"
+private const val TOPIC_HUMIDITY = "smart_environment/humidity"
+private const val TOPIC_LDR = "smart_environment/ldr" // New LDR topic
+private const val TOPIC_DISTANCE = "smart_environment/distance" // New Distance topic
+private const val TOPIC_MOTION = "smart_environment/motion"
 
 class SensorViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -44,9 +45,14 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         connectMqtt()
     }
 
+    fun retryConnection() {
+        Log.d("SensorViewModel_MQTT", "Retrying MQTT connection...")
+        connectMqtt()
+    }
+
     private fun connectMqtt() {
         val appContext = getApplication<Application>().applicationContext
-        val clientId = MqttClient.generateClientId()
+        val clientId = "TriadWatchAppClient_HomeScreen"
         mqttClient = MqttAndroidClient(appContext, MQTT_BROKER_URL, "${MQTT_CLIENT_ID_PREFIX}_${clientId}")
 
         mqttClient?.setCallback(object : MqttCallbackExtended {
@@ -209,6 +215,7 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                 "Verify Failed"
             }
             updateStateWithValue(topic, displayValue, isVerified, currentTimestamp)
+            saveEncryptedToFirebase(topic, encryptedData, expectedHash, currentTimestamp)
         } else {
             Log.w("SensorViewModel_MQTT", "Decryption failed for topic '$topic'")
             updateStateWithError(topic, "Decrypt Error")
@@ -328,6 +335,25 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
     }
+
+    private fun saveEncryptedToFirebase(topic: String, cipher: String, hash: String, timestamp: Long) {
+        val database = FirebaseDatabase.getInstance()
+        val ref = database.reference.child("smart_environment_encrypted")
+
+        val data = mapOf(
+            "topic" to topic,
+            "cipher" to cipher,
+            "hash" to hash,
+            "timestamp" to timestamp
+        )
+
+        ref.child(topic.replace("/", "_")).push().setValue(data)
+            .addOnSuccessListener { Log.i("Firebase", "Encrypted data saved for $topic") }
+            .addOnFailureListener { e -> Log.e("Firebase", "Failed to save data for $topic", e) }
+    }
+
+
+
 
     override fun onCleared() {
         super.onCleared()

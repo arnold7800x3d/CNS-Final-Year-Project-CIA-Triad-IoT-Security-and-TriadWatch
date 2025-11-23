@@ -23,14 +23,14 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 
 // --- MQTT Configuration (Ensure these are correct) ---
-private const val MQTT_BROKER_URL = "ssl://192.168.1.8:8883" // Match SensorViewModel
+private const val MQTT_BROKER_URL = "ssl://192.168.100.7:8883" // Match SensorViewModel
 private const val MQTT_CLIENT_ID_PREFIX = "TriadWatchAppClient_LED_" // Slightly different prefix
 private const val MQTT_USERNAME = "arnold" // Match SensorViewModel
 private const val MQTT_PASSWORD = "7945" // Match SensorViewModel
 
 // --- MQTT Topics for Commands ---
-private const val TOPIC_LED_WHITE_COMMAND = "bank_monitoring/led/white"
-private const val TOPIC_LED_BLUE_COMMAND = "bank_monitoring/led/blue"
+private const val TOPIC_LED_WHITE_COMMAND = "smart_environment/led/white"
+private const val TOPIC_LED_BLUE_COMMAND = "smart_environment/led/blue"
 
 class LEDControlViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -97,7 +97,7 @@ class LEDControlViewModel(application: Application) : AndroidViewModel(applicati
             isCleanSession = true // Important for command-based interactions
             try {
                 val cf: CertificateFactory = CertificateFactory.getInstance("X.509")
-                val caInput: InputStream = appContext.resources.openRawResource(R.raw.deb11ca) // Use your CA cert
+                val caInput: InputStream = appContext.resources.openRawResource(R.raw.deb11ca)
                 val ca: X509Certificate = caInput.use {
                     cf.generateCertificate(it) as X509Certificate
                 }
@@ -108,7 +108,7 @@ class LEDControlViewModel(application: Application) : AndroidViewModel(applicati
                 val tmfAlgorithm: String = TrustManagerFactory.getDefaultAlgorithm()
                 val tmf: TrustManagerFactory = TrustManagerFactory.getInstance(tmfAlgorithm)
                 tmf.init(keyStore)
-                val sslContext: SSLContext = SSLContext.getInstance("TLSv1.2") // Or TLSv1.3 if supported
+                val sslContext: SSLContext = SSLContext.getInstance("TLSv1.2")
                 sslContext.init(null, tmf.trustManagers, null)
                 this.socketFactory = sslContext.socketFactory
                 Log.i("LEDControlViewModel_MQTT", "SSLSocketFactory configured successfully for LED VM.")
